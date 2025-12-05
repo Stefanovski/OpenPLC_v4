@@ -2200,124 +2200,95 @@ class CompilerModule {
       return
     }
 
-    // STN: STEP10
-    // Step 7: Handle patch files
-    // try {
-    //   await this.handlePatchGeneratedFiles(compilationPath, (data, logLevel) => {
-    //     _mainProcessPort.postMessage({ logLevel, message: data })
-    //   })
-    // } catch (error) {
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-    //   })
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: 'Stopping compilation process.',
-    //   })
-    //   _mainProcessPort.close()
-    //   return
-    // }
-
-    // // Step 8: Handle core installation
-    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling core installation...' })
-    // try {
-    //   await this.handleCoreInstallation(boardCore, (data, logLevel) => {
-    //     _mainProcessPort.postMessage({ logLevel, message: data })
-    //   })
-    // } catch (error) {
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-    //   })
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: 'Stopping compilation process.',
-    //   })
-    //   _mainProcessPort.close()
-    //   return
-    // }
-
-    // Step 9: Handle library installation
-    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling library installation...' })
-    // try {
-    //   await this.handleLibraryInstallation((data, logLevel) => {
-    //     _mainProcessPort.postMessage({ logLevel, message: data })
-    //   })
-    // } catch (error) {
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-    //   })
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: 'Stopping compilation process.',
-    //   })
-    //   _mainProcessPort.close()
-    //   return
-    // }
-
     // Step 10: Handle defines.h file generation
+    // try {
+    //   if (buildMD5Hash === null) {
+    //     _mainProcessPort.postMessage({
+    //       logLevel: 'error',
+    //       message: 'Build MD5 hash is null, cannot generate defines.h file.',
+    //     })
+    //     _mainProcessPort.close()
+    //     return
+    //   }
+    //   await this.handleGenerateDefinitionsFile({
+    //     projectPath: normalizedProjectPath,
+    //     boardTarget,
+    //     buildMD5Hash,
+    //     _handleOutputData: (data, logLevel) => {
+    //       _mainProcessPort.postMessage({ logLevel, message: data })
+    //     },
+    //   })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    // }
+  
+    // STN: STEP11
+    // Step 11: Execute build.bat and stream output
     try {
-      if (buildMD5Hash === null) {
-        _mainProcessPort.postMessage({
-          logLevel: 'error',
-          message: 'Build MD5 hash is null, cannot generate defines.h file.',
+      // Nutzung der existierenden Variable compilationPath
+      // compilationPath = .../ProjektOrdner/build/Eurosonic_Gen2
+      const batFilePath = join(compilationPath, 'build.bat')
+
+      _mainProcessPort.postMessage({ logLevel: 'info', message: `Executing build script: ${batFilePath}` })
+
+      await new Promise<void>((resolve, reject) => {
+        // cwd: compilationPath setzt das Arbeitsverzeichnis direkt in den Build-Ordner
+        const buildProcess = spawn(batFilePath, [], { 
+          cwd: compilationPath, 
+          shell: true 
         })
-        _mainProcessPort.close()
-        return
-      }
-      await this.handleGenerateDefinitionsFile({
-        projectPath: normalizedProjectPath,
-        boardTarget,
-        buildMD5Hash,
-        _handleOutputData: (data, logLevel) => {
-          _mainProcessPort.postMessage({ logLevel, message: data })
-        },
+
+        // Standard-Output an Frontend senden
+        buildProcess.stdout.on('data', (data: Buffer) => {
+          const message = data.toString().trim()
+          if (message) {
+            _mainProcessPort.postMessage({ logLevel: 'info', message })
+          }
+        })
+
+        // Error-Output an Frontend senden
+        buildProcess.stderr.on('data', (data: Buffer) => {
+          const message = data.toString().trim()
+          if (message) {
+            // Optional: Wenn zu viele rote Infos kommen, hier auf 'info' stellen
+            _mainProcessPort.postMessage({ logLevel: 'error', message })
+          }
+        })
+
+        // Prozess beendet
+        buildProcess.on('close', (code) => {
+          if (code === 0) {
+            _mainProcessPort.postMessage({ logLevel: 'info', message: 'BUILD FINISHED SUCCESSFULLY.' })
+            resolve()
+          } else {
+            reject(new Error(`Build script exited with code ${code}`))
+          }
+        })
+
+        // Prozess konnte nicht gestartet werden
+        buildProcess.on('error', (err) => {
+          reject(err)
+        })
       })
+
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
         message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
       })
+      _mainProcessPort.postMessage({
+        logLevel: 'error',
+        message: 'Stopping process due to build.bat failure.',
+      })
+      _mainProcessPort.close()
+      return
     }
-
-    // Step 11: Generate Arduino CPP file
-    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Generating Arduino CPP file...' })
-    // try {
-    //   await this.handleGenerateArduinoCppFile(normalizedProjectPath, boardTarget)
-    //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino CPP file generated successfully.' })
-    // } catch (error) {
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-    //   })
-    //   _mainProcessPort.close()
-    //   return
-    // }
-
-    // Step 12: Compile Arduino Program
-    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Compiling Arduino program...' })
-    // try {
-    //   await this.handleCompileArduinoProgram({
-    //     boardTarget,
-    //     boardHalsContent: halsContent[boardTarget],
-    //     compilationPath,
-    //     handleOutputData: (data, logLevel) => {
-    //       _mainProcessPort.postMessage({ logLevel, message: data })
-    //     },
-    //   })
-    //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino program compiled successfully.' })
-    // } catch (error) {
-    //   _mainProcessPort.postMessage({
-    //     logLevel: 'error',
-    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-    //   })
-    //   _mainProcessPort.close()
-    //   return
-    // }
-
-    // Step 13: Upload program to board if necessary
+  
+    //STN: STEP11
+    // Step 11: Upload program to board if necessary
     if (!compileOnly) {
       _mainProcessPort.postMessage({ logLevel: 'info', message: 'Uploading program to board...' })
       try {

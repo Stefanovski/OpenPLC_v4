@@ -12,10 +12,10 @@ extern unsigned long long common_ticktime__;
 extern void config_init__(void);
 extern void config_run__(unsigned long tick);
 
-extern uint16_t QW[];
-extern uint16_t IW[];
-extern uint8_t QX[];
-extern uint8_t IX[];
+IEC_BOOL IX[IX_COUNT] __attribute__((section(".ModbusDiSection")));
+IEC_BOOL QX[QX_COUNT] __attribute__((section(".ModbusDoSection")));
+IEC_UINT IW[IW_COUNT] __attribute__((section(".ModbusAiSection")));
+IEC_UINT QW[QW_COUNT] __attribute__((section(".ModbusAoSection")));
 
 unsigned long __tick = 0;
 
@@ -70,12 +70,14 @@ void init_plc(unsigned long long *pcommon_ticktime)
 	plc_data_bss_init();
 #endif	
 	// Clear all memory
-	memset(QW, 0, HOLDING_REG_COUNT * sizeof(uint16_t));
-	memset(IW, 0, INPUT_REG_COUNT * sizeof(uint16_t));
-	memset(QX, 0, COIL_COUNT * sizeof(uint8_t));
-	memset(IX, 0, DISCRETE_COUNT * sizeof(uint8_t));
+	memset(QW, 0, QW_COUNT * sizeof(uint16_t));
+	memset(IW, 0, IW_COUNT * sizeof(uint16_t));
+	memset(QX, 0, QX_COUNT * sizeof(uint8_t));
+	memset(IX, 0, IX_COUNT * sizeof(uint8_t));
 	
 	config_init__();
+
+	glueVars();
 
 	// Set the ticktime pointer to the common_ticktime__ value
 	if (pcommon_ticktime != NULL)

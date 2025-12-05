@@ -1,6 +1,15 @@
 #ifndef PLC_MAIN_H
 #define PLC_MAIN_H
 
+#include <iec_types_all.h>
+
+
+extern IEC_BOOL IX[];
+extern IEC_BOOL QX[];
+extern IEC_UINT IW[];
+extern IEC_UINT QW[];
+
+
 // This structure is used to identify the binary file
 typedef struct
 {

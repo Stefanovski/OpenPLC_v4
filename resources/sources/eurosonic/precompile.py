@@ -1,3 +1,5 @@
+import os
+
 def update_Config0h():
     # Define the line to be added
     include_line = '#include "openplc.h"\n'
@@ -59,7 +61,6 @@ def update_POUSc():
         print(f'Error: File {file_path} not found.')
     except Exception as e:
         print(f'An error occurred: {e}')
-
 
 def update_Res0c():
     try:
@@ -131,8 +132,64 @@ uint32_t get_tick()
     except Exception as e:
         print(f'An error occurred: {e}')
 
+def update_glueVars():
+    template_path = 'runtime/glueVars.c.j2'
+    target_path = 'src/glueVars.c'
+    # Dieser String dient als Trenner. Alles davor kommt aus dem Template,
+    # alles ab hier (inklusive) kommt aus der generierten Datei.
+    split_marker = 'void glueVars()'
+
+    try:
+        # 1. Prüfen, ob beide Dateien existieren
+        if not os.path.exists(template_path):
+            print(f'Error: Template {template_path} not found.')
+            return
+        if not os.path.exists(target_path):
+            print(f'Error: Target {target_path} not found.')
+            return
+
+        # 2. Template einlesen (Quelle für den Header)
+        with open(template_path, 'r') as f:
+            template_content = f.read()
+
+        # 3. Ziel-Datei einlesen (Quelle für den Funktions-Body)
+        with open(target_path, 'r') as f:
+            target_content = f.read()
+
+        # 4. Schnittpunkte finden
+        # Wir suchen "void glueVars()" im Template
+        tpl_idx = template_content.find(split_marker)
+        if tpl_idx == -1:
+            print(f'Error: Marker "{split_marker}" not found in template.')
+            return
+
+        # Wir suchen "void glueVars()" im Ziel
+        tgt_idx = target_content.find(split_marker)
+        if tgt_idx == -1:
+            print(f'Error: Marker "{split_marker}" not found in target file.')
+            return
+
+        # 5. Zusammenfügen
+        # Nimm alles vom Template VOR dem Marker
+        new_header = template_content[:tpl_idx]
+        
+        # Nimm alles vom Ziel AB dem Marker (inklusive void glueVars() und updateTime())
+        keep_body = target_content[tgt_idx:]
+
+        final_content = new_header + keep_body
+
+        # 6. Datei überschreiben
+        with open(target_path, 'w') as f:
+            f.write(final_content)
+
+        print(f'Successfully merged header from {template_path} into {target_path}.')
+
+    except Exception as e:
+        print(f'An error occurred in update_glueVars: {e}')
+
 if __name__ == "__main__":
     update_Config0h()
     update_POUSc()
     update_Res0c()
     update_debugc()
+    update_glueVars()

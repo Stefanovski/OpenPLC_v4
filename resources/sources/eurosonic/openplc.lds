@@ -3,6 +3,18 @@
  * The file is provided under the BSD license.
  */
 
+/* ------------------------------------------------------------------ */
+/* DEFINITION DER PUFFER-GRÖSSEN (in Bytes)                           */
+/* Diese Werte sind "Variablen", die auch in C lesbar sind.           */
+/* ------------------------------------------------------------------ */
+_len_bool_in   = 0x1000;  /* 1KB für Bool Inputs */
+_len_bool_out  = 0x1000;  /* 1KB für Bool Outputs */
+_len_int_in    = 0x2000;  /* 2KB für Analog Inputs */
+_len_int_out   = 0x2000;  /* 2KB für Analog Outputs */
+_len_mem_int   = 0x4000; /* 4KB für Memory Words */
+_len_mem_dint  = 0x4000; /* 4KB für Memory DWords */
+_len_mem_lint  = 0x4000; /* 4KB für Memory LWords */
+
 MEMORY
 {
 	FLASH (rx)   : ORIGIN = 0x08180000, LENGTH = 512K    /* Memory is divided. Actual start is 0x08000000 and actual length is 2048K */
@@ -10,6 +22,7 @@ MEMORY
 	RAM_D1 (xrw)   : ORIGIN = 0x24060000, LENGTH = 128K    
 	RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K
 	RAM_D3 (xrw)   : ORIGIN = 0x38000000, LENGTH = 64K
+    SDRAM_PLC (rw) : ORIGIN = 0xD0C00000, LENGTH = 2M
 	ITCMRAM (xrw)  : ORIGIN = 0x00000000, LENGTH = 64K
 }
 
@@ -131,6 +144,48 @@ SECTIONS
 	} > RAM_D1
 
 	PROVIDE(end = .);
+
+    /* OpenPLC memory */
+    .sdram_plc_sections (NOLOAD) :
+    {
+        /* Startadresse setzen (einmalig) */
+        . = ABSOLUTE(0xD0C00000);
+
+        /* --- 1. BOOL INPUTS --- */
+        _start_bool_in = .;            /* Start merken */
+        KEEP(*(.plc_bool_in))          /* Daten ablegen */
+        . = _start_bool_in + _len_bool_in; /* Pointer hart auf Ende des Blocks schieben */
+
+        /* --- 2. BOOL OUTPUTS --- */
+        _start_bool_out = .;
+        KEEP(*(.plc_bool_out))
+        . = _start_bool_out + _len_bool_out;
+
+        /* --- 3. INT INPUTS --- */
+        _start_int_in = .;
+        KEEP(*(.plc_int_in))
+        . = _start_int_in + _len_int_in;
+
+        /* --- 4. INT OUTPUTS --- */
+        _start_int_out = .;
+        KEEP(*(.plc_int_out))
+        . = _start_int_out + _len_int_out;
+
+        /* --- 5. MEMORY WORDS --- */
+        _start_mem_int = .;
+        KEEP(*(.plc_mem_int))
+        . = _start_mem_int + _len_mem_int;
+
+        /* --- 6. MEMORY DWORDS --- */
+        _start_mem_dint = .;
+        KEEP(*(.plc_mem_dint))
+        . = _start_mem_dint + _len_mem_dint;
+
+        /* --- 7. MEMORY LWORDS --- */
+        _start_mem_lint = .;
+        KEEP(*(.plc_mem_lint))
+        . = _start_mem_lint + _len_mem_lint;
+    } > SDRAM_PLC
 
    .modbus_sec (NOLOAD) : {
 		. = ABSOLUTE(0x38000000);
