@@ -1,0 +1,18 @@
+@echo off
+set "CMAKE_PATH=C:\sysgcc\cmake\bin"
+set "TOOLCHAIN_PATH=C:\sysgcc\arm-eabi\bin"
+set "PATH=%CMAKE_PATH%;%TOOLCHAIN_PATH%;%PATH%"
+
+rem Make changes to the source file before compiling
+python precompile.py
+
+echo CMake and Toolchain added to PATH temporarily.
+
+rmdir /S /Q build
+mkdir build
+
+cmake -G "Ninja" -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_BUILD_TYPE=Debug . 
+cmake --build build
+
+rem Make the bin file 32 Bytes aligned for flashing and add MD5
+python postcompile.py ./build/output/OpenPLC.bin 32 override
