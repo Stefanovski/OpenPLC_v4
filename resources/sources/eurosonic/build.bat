@@ -15,4 +15,4 @@ cmake -G "Ninja" -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_BUILD_T
 cmake --build build
 
 rem Make the bin file 32 Bytes aligned for flashing and add MD5
-python postcompile.py ./build/output/OpenPLC.bin 32 override
+python postcompile.py ./build/output/OPEN_PLC.bin 32 override

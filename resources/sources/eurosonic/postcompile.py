@@ -3,6 +3,7 @@ import os
 import hashlib
 import struct
 
+HEADER_SIZE = 1024  # 0x400
 
 def pad_binary(filename, alignment):
     """Pad the binary file to the specified alignment."""
@@ -17,7 +18,7 @@ def calculate_md5(filename, exclude_header):
     md5_hash = hashlib.md5()
     with open(filename, "rb") as f:
         if exclude_header:
-            f.seek(256)  # Skip the existing header
+            f.seek(HEADER_SIZE)  # Skip the existing header
         for chunk in iter(lambda: f.read(4096), b""):
             md5_hash.update(chunk)
     return md5_hash.digest()
@@ -26,54 +27,49 @@ def calculate_md5(filename, exclude_header):
 def header_exists(filename):
     """Check if the header already exists in the binary."""
     with open(filename, "rb") as f:
-        f.seek(8)  # Position of `uiHeaderStart` in the header
-        header_start = struct.unpack('<I', f.read(4))[0]
+        f.seek(8)
+        data = f.read(4)
+        if len(data) < 4:
+            return False  # Datei zu klein � kein Header vorhanden
+        header_start = struct.unpack('<I', data)[0]
         return header_start == 0xCAFEBABE
 
-
 def update_or_prepend_header(filename, md5_hash, override, custom_name=None):
-    """Update or prepend the 256-byte header to the binary file."""
-    file_size = os.path.getsize(filename) - (256 if override else 0)
+    """Update or prepend the 1024-byte header to the binary file."""
+    file_size = os.path.getsize(filename) - (HEADER_SIZE if override else 0)
     binary_length = file_size
 
-    # Use custom filename if provided; otherwise, extract from `filename`
     base_filename = custom_name if custom_name else os.path.basename(filename)
 
-    # Read the first 8 bytes of the binary file
+    # --- FIX: 8 Bytes aus der Payload holen, nicht aus evtl. altem Header ---
     with open(filename, "rb") as f:
+        if override:
+            f.seek(HEADER_SIZE)   # skip existing header to read real vectors
         first_8_bytes = f.read(8)
 
     if len(first_8_bytes) < 8:
         raise ValueError("Binary file is too small to extract the first 8 bytes.")
 
-    # Prepare the `FlashHeader_t` structure
     uiHeaderStart = 0xCAFEBABE
-    uiBinaryLength = binary_length  # Length of the binary without the header
-    aInfo = base_filename.encode('ascii')[:31] + b'\0'  # Filename, null-terminated
+    uiBinaryLength = binary_length
+    aInfo = base_filename.encode("ascii")[:31] + b"\0"
     aMD5 = md5_hash
+    uiState = bytes([1])  # 0x01 = FW_STATE_PENDING
 
-    # Build the header (256 bytes)
-    header = struct.pack(
-        '<8sII32s16s',
-        first_8_bytes,    # 8 bytes: Copied from the beginning of the binary file
-        uiHeaderStart,    # 4 bytes: Magic number
-        uiBinaryLength,   # 4 bytes: Binary length
-        aInfo,            # 32 bytes: Application info
-        aMD5              # 16 bytes: MD5 checksum
-    )
-    header = header.ljust(256, b'\x00')  # Pad the rest of the header to 256 bytes
+    # Build header
+    header = struct.pack("<8sII32s16sB", first_8_bytes,
+                         uiHeaderStart, uiBinaryLength, aInfo, aMD5, uiState[0])
+    header = header.ljust(HEADER_SIZE, b"\x00")
 
     if override:
-        # Overwrite the existing header
         with open(filename, "r+b") as f:
-            f.seek(0)  # Start of the file
+            f.seek(0)
             f.write(header)
     else:
-        # Prepend the header to the file
         with open(filename, "rb") as f:
-            original_content = f.read()
+            original = f.read()
         with open(filename, "wb") as f:
-            f.write(header + original_content)  # Write header + original content
+            f.write(header + original)
 
 
 if __name__ == "__main__":
@@ -90,26 +86,22 @@ if __name__ == "__main__":
         print("Error: Mode must be 'override' or 'append'.")
         sys.exit(1)
 
-    # Step 1: Pad the binary
     pad_binary(filename, alignment)
 
-    # Step 2: If mode is "append", check if header already exists
     override = (mode == "override")
     if mode == "append" and header_exists(filename):
         print("Header already exists. Switching to 'override' mode.")
         override = True
 
-    # Step 3: Calculate MD5 hash of the binary (excluding the header if overriding)
     md5_hash = calculate_md5(filename, exclude_header=override)
 
-    # Step 4: Update or prepend the 256-byte header
     update_or_prepend_header(filename, md5_hash, override, custom_name)
 
     print(f"Processed '{filename}':")
     print(f"- Padded to {alignment}-byte alignment.")
     if override:
-        print(f"- Overwrote existing 256-byte header with calculated MD5 and other information.")
+        print(f"- Overwrote existing 1024-byte header with calculated MD5 and other information.")
     else:
-        print(f"- Prepended 256-byte header with calculated MD5 and other information.")
+        print(f"- Prepended 1024-byte header with calculated MD5 and other information.")
     if custom_name:
         print(f"- Used custom filename '{custom_name}' in the header.")

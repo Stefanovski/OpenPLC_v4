@@ -7,7 +7,7 @@
     "default_din": "",
     "default_dout": "",
     "platform": "STMicroelectronics:stm32:Eurosonic_Gen2",
-    "preview": "generic.png",
+    "preview": "eurosonic_gen2.png",
     "source": "",
     "specs": {
       "CPU": "STM32H747XI",

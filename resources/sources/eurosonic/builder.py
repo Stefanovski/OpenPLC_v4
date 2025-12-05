@@ -821,7 +821,7 @@ def build(st_file, definitions, arduino_sketch, port, send_text, board_hal, buil
         append_compiler_log(send_text, f'\n{_("Uploading program to Generator board at {port}...")}\n')
 
         url = 'http://192.168.200.240/upload_plc.cgi'
-        response = upload_binary(url, os.path.join(_eurosonic_build_path, 'output', 'OpenPLC.bin'))
+        response = upload_binary(url, os.path.join(_eurosonic_build_path, 'output', 'OPEN_PLC.bin'))
 
         append_compiler_log(send_text, '\n' + _('Done!') + '\n')
         return True
