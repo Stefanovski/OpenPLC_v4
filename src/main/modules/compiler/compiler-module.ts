@@ -1056,60 +1056,157 @@ class CompilerModule {
     })
   }
 
+  // async handleUploadProgram({
+  //   projectPath,
+  //   arduinoPlatform,
+  //   compilationPath,
+  //   handleOutputData,
+  // }: {
+  //   projectPath: string
+  //   arduinoPlatform: string
+  //   compilationPath: string
+  //   handleOutputData: HandleOutputDataCallback
+  // }) {
+  //   const devicesDirectoryPath = join(projectPath, 'devices')
+  //   const devicesConfigurationFilePath = join(devicesDirectoryPath, 'configuration.json')
+  //   const { communicationPort: port } =
+  //     await CompilerModule.readJSONFile<DeviceConfiguration>(devicesConfigurationFilePath)
+  //   const baremetalPath = join(compilationPath, 'examples', 'Baremetal')
+
+  //   if (!port) {
+  //     handleOutputData('No communication port specified', 'error')
+  //     return
+  //   }
+
+  //   return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
+  //     const child = this.#executeArduinoCliCommand([
+  //       'upload',
+  //       '--port',
+  //       port,
+  //       '--fqbn',
+  //       arduinoPlatform,
+  //       baremetalPath,
+  //       ...this.arduinoCliBaseParameters,
+  //     ])
+
+  //     let stderrData = ''
+
+  //     child.stdout.on('data', (data: Buffer) => {
+  //       handleOutputData(data)
+  //     })
+  //     child.stderr.on('data', (data: Buffer) => {
+  //       stderrData += data.toString()
+  //     })
+  //     child.on('close', (code) => {
+  //       if (code === 0) {
+  //         resolve({
+  //           success: true,
+  //         })
+  //       } else {
+  //         reject(new Error(`Upload failed with code ${code}\n${stderrData}`))
+  //       }
+  //     })
+  //   })
+  // }
+
+
+  // STN: UPDATED STEP 11 (RAW Binary Upload)
   async handleUploadProgram({
     projectPath,
     arduinoPlatform,
     compilationPath,
     handleOutputData,
+    runtimeIpAddress,
   }: {
     projectPath: string
     arduinoPlatform: string
     compilationPath: string
     handleOutputData: HandleOutputDataCallback
+    runtimeIpAddress?: string | null
+    runtimeJwtToken?: string | null // Wird hier scheinbar nicht benötigt laut C-Code
   }) {
-    const devicesDirectoryPath = join(projectPath, 'devices')
-    const devicesConfigurationFilePath = join(devicesDirectoryPath, 'configuration.json')
-    const { communicationPort: port } =
-      await CompilerModule.readJSONFile<DeviceConfiguration>(devicesConfigurationFilePath)
-    const baremetalPath = join(compilationPath, 'examples', 'Baremetal')
+    // Pfad zur Binary Datei
+    const binaryPath = join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
 
-    if (!port) {
-      handleOutputData('No communication port specified', 'error')
+    if (!runtimeIpAddress) {
+      handleOutputData('No IP address provided for HTTP upload.', 'error')
       return
     }
 
+    handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
+
+    let fileBuffer: Buffer
+    try {
+      fileBuffer = await readFile(binaryPath)
+    } catch (error) {
+      handleOutputData(`Failed to read binary file: ${(error as Error).message}`, 'error')
+      return
+    }
+
+    handleOutputData(`Starting upload to ${runtimeIpAddress}/upload.cgi (${fileBuffer.length} bytes)...`, 'info')
+
     return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
-      const child = this.#executeArduinoCliCommand([
-        'upload',
-        '--port',
-        port,
-        '--fqbn',
-        arduinoPlatform,
-        baremetalPath,
-        ...this.arduinoCliBaseParameters,
-      ])
+      
+      const options = {
+        hostname: runtimeIpAddress,
+        port: 80, 
+        path: '/upload.cgi',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': fileBuffer.length,
+          'Connection': 'close'
+        },
+      }
 
-      let stderrData = ''
+      // STN: DEBUG LOGGING ADDED
+      const req = require('node:http').request(options, (res: IncomingMessage) => {
+        let responseData = ''
+        
+        res.on('data', (chunk) => {
+          responseData += chunk
+        })
 
-      child.stdout.on('data', (data: Buffer) => {
-        handleOutputData(data)
+        res.on('end', () => {
+          // DEBUG: Wir geben ALLES aus, was das Board antwortet
+          handleOutputData(`[DEBUG] Server Status Code: ${res.statusCode}`, 'info')
+          handleOutputData(`[DEBUG] Server Response Body: "${responseData}"`, 'info')
+
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            // Prüfung: Hat der Server Erfolg gemeldet?
+            if (responseData.includes("uploaddone") || responseData.includes("Success")) {
+                 handleOutputData('Upload successful! Board is flashing...', 'info')
+                 resolve({ success: true })
+            } else if (responseData.includes("uploaderror")) {
+                 handleOutputData('Board reported an upload error (Check Magic Number/CRC).', 'error')
+                 reject(new Error('Board rejected the file.'))
+            } else {
+                 // Hier landen wir aktuell. Jetzt sehen wir durch das Log oben aber WARUM.
+                 handleOutputData('Warning: Upload finished with HTTP 200, but no success confirmation received.', 'info')
+                 resolve({ success: true })
+            }
+          } else {
+            const errorMsg = `Upload HTTP error: ${res.statusCode} - Body: ${responseData}`
+            handleOutputData(errorMsg, 'error')
+            reject(new Error(errorMsg))
+          }
+        })
       })
-      child.stderr.on('data', (data: Buffer) => {
-        stderrData += data.toString()
+
+      req.on('error', (e: Error) => {
+        const errorMsg = `Upload connection failed: ${e.message}`
+        handleOutputData(errorMsg, 'error')
+        reject(new Error(errorMsg))
       })
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve({
-            success: true,
-          })
-        } else {
-          reject(new Error(`Upload failed with code ${code}\n${stderrData}`))
-        }
-      })
-    })
+
+      // Hier schreiben wir die rohen Bytes direkt in den Stream
+      req.write(fileBuffer)
+      req.end()
+    })  
   }
 
   // !! Deprecated: This method is a outdated implementation and should be removed.
+
   async createXmlFile(
     pathToUserProject: string,
     dataToCreateXml: ProjectState['data'],
@@ -2286,9 +2383,47 @@ class CompilerModule {
       _mainProcessPort.close()
       return
     }
-  
-    //STN: STEP11
-    // Step 11: Upload program to board if necessary
+
+    // STN: PRE-STEP 12 - Statische IP aus configuration.json ermitteln
+    let targetUploadIp = runtimeIpAddress; // Fallback auf die übergebene IP
+
+    try {
+      // 1. Pfad zur Konfigurationsdatei bauen
+      const devicesDirectoryPath = join(normalizedProjectPath, 'devices');
+      const devicesConfigurationFilePath = join(devicesDirectoryPath, 'configuration.json');
+      
+      // 2. Datei lesen (wir nutzen den generischen Typ DeviceConfiguration, der oben importiert ist)
+      // Falls der Typ DeviceConfiguration Probleme macht, kannst du <any> verwenden.
+      const deviceConfig = await CompilerModule.readJSONFile<DeviceConfiguration>(devicesConfigurationFilePath);
+      
+      // 3. Statische IP extrahieren
+      // Pfad gemäß deiner JSON: communicationConfiguration -> modbusTCP -> tcpStaticHostConfiguration -> ipAddress
+      const staticIpConfig = deviceConfig.communicationConfiguration?.modbusTCP?.tcpStaticHostConfiguration?.ipAddress;
+
+      // 4. Validieren und zuweisen
+      if (staticIpConfig && staticIpConfig.trim() !== '' && staticIpConfig !== '0.0.0.0') {
+        targetUploadIp = staticIpConfig;
+        
+        _mainProcessPort.postMessage({ 
+          logLevel: 'info', 
+          message: `Using configured Static IP from configuration.json: ${targetUploadIp}` 
+        });
+      } else {
+        _mainProcessPort.postMessage({ 
+            logLevel: 'info', 
+            message: `No static IP configured in configuration.json. Using runtime IP: ${targetUploadIp}` 
+        });
+      }
+    } catch (configError) {
+      // Falls die Datei nicht gelesen werden kann (z.B. Rechteprobleme), machen wir einfach mit der Standard-IP weiter
+      _mainProcessPort.postMessage({
+        logLevel: 'warning',
+        message: `Could not read configuration.json, continuing with runtime IP.`
+      });
+    }    
+
+    // STN: STEP12
+    // Step 12: Upload program to board if necessary
     if (!compileOnly) {
       _mainProcessPort.postMessage({ logLevel: 'info', message: 'Uploading program to board...' })
       try {
@@ -2296,6 +2431,7 @@ class CompilerModule {
           projectPath: normalizedProjectPath,
           arduinoPlatform: halsContent[boardTarget]['platform'],
           compilationPath,
+          runtimeIpAddress: targetUploadIp,
           handleOutputData: (data, logLevel) => {
             _mainProcessPort.postMessage({ logLevel, message: data })
           },

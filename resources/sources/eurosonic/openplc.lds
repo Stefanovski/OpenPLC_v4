@@ -34,17 +34,17 @@ SECTIONS
         KEEP(*(.flash_header_section))
     } > FLASH
  
-    .init_plc_section 0x08180100 : ALIGN(4)
+    .init_plc_section 0x08180400 : ALIGN(4)
     {
         KEEP(*(.init_plc_section))
     } > FLASH
 
-    .run_plc_section 0x08180200 : ALIGN(4)
+    .run_plc_section 0x08180500 : ALIGN(4)
     {
         KEEP(*(.run_plc_section))
     } > FLASH
 
-    .interface_section 0x08180300 : ALIGN(4)
+    .interface_section 0x08180600 : ALIGN(4)
     {
         KEEP(*(.interface_section))
     } > FLASH

@@ -43,12 +43,12 @@ endif()
 
 add_custom_command(
     TARGET OpenPLC POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:OpenPLC> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/OpenPLC.bin
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:OpenPLC> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/OPEN_PLC.bin
     COMMENT "Converting ELF to BIN"
 )
 
 #add_custom_command(
 #    TARGET OpenPLC POST_BUILD
-#    COMMAND ${CMAKE_OBJCOPY} -O binary -R .bss $<TARGET_FILE:OpenPLC> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/OpenPLC.bin
+#    COMMAND ${CMAKE_OBJCOPY} -O binary -R .bss $<TARGET_FILE:OpenPLC> ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/OPEN_PLC.bin
 #    COMMENT "Converting ELF to BIN and excluding unnecessary sections"
 #)
