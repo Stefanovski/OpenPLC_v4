@@ -321,30 +321,67 @@ class CompilerModule {
   }
 
   // INFO: This method is a placeholder for copying static files.
+  // async copyStaticFiles(compilationPath: string, boardTarget: string): Promise<MethodsResult<string>> {
+  //   let result: MethodsResult<string> = { success: false }
+  //   let filesToCopy: Promise<void>[] = []
+
+  //   const staticArduinoFilesPath = join(this.sourceDirectoryPath, 'arduino')
+  //   const staticBaremetalFilesPath = join(this.sourceDirectoryPath, 'Baremetal')
+  //   const staticMatIECLibraryFilesPath = join(this.sourceDirectoryPath, 'MatIEC', 'lib')
+
+  //   const sourceTargetFolderPath = join(compilationPath, 'src')
+
+  //   if (boardTarget !== 'openplc-compiler') {
+  //     filesToCopy = [
+  //       cp(staticArduinoFilesPath, sourceTargetFolderPath, { recursive: true }),
+  //       cp(staticMatIECLibraryFilesPath, join(sourceTargetFolderPath, 'lib'), { recursive: true }),
+  //       cp(staticBaremetalFilesPath, join(compilationPath, 'examples', 'Baremetal'), { recursive: true }),
+  //     ]
+  //   } else {
+  //     // INFO: If the board target is OpenPLC, we copy the MatIEC library files and C/C++ block templates.
+  //     const cBlocksHeaderPath = join(this.sourceDirectoryPath, 'arduino', 'c_blocks.h')
+  //     const cBlocksCodePath = join(this.sourceDirectoryPath, 'Baremetal', 'c_blocks_code.cpp')
+  //     filesToCopy = [
+  //       cp(staticMatIECLibraryFilesPath, join(sourceTargetFolderPath, 'lib'), { recursive: true }),
+  //       cp(cBlocksHeaderPath, join(sourceTargetFolderPath, 'c_blocks.h')),
+  //       cp(cBlocksCodePath, join(sourceTargetFolderPath, 'c_blocks_code.cpp')),
+  //     ]
+  //   }
+
+  //   try {
+  //     // Implement the logic to copy static build files.
+  //     const results = await Promise.all(filesToCopy)
+  //     if (results.every((res) => res === undefined)) {
+  //       result = { success: true, data: 'Static build files available' }
+  //     }
+  //   } catch (error) {
+  //     throw new Error(`Error copying static files: ${error as string}`)
+  //   }
+
+  //   return result
+  // }
+
+  // STN: Copy static files needed for eurosonic
   async copyStaticFiles(compilationPath: string, boardTarget: string): Promise<MethodsResult<string>> {
     let result: MethodsResult<string> = { success: false }
     let filesToCopy: Promise<void>[] = []
 
-    const staticArduinoFilesPath = join(this.sourceDirectoryPath, 'arduino')
-    const staticBaremetalFilesPath = join(this.sourceDirectoryPath, 'Baremetal')
+    const staticEurosonicFilesPath = join(this.sourceDirectoryPath, 'eurosonic')
     const staticMatIECLibraryFilesPath = join(this.sourceDirectoryPath, 'MatIEC', 'lib')
 
+    const baseTargetFolderPath = compilationPath
     const sourceTargetFolderPath = join(compilationPath, 'src')
 
     if (boardTarget !== 'openplc-compiler') {
       filesToCopy = [
-        cp(staticArduinoFilesPath, sourceTargetFolderPath, { recursive: true }),
+        cp(staticEurosonicFilesPath, baseTargetFolderPath, { recursive: true }),
         cp(staticMatIECLibraryFilesPath, join(sourceTargetFolderPath, 'lib'), { recursive: true }),
-        cp(staticBaremetalFilesPath, join(compilationPath, 'examples', 'Baremetal'), { recursive: true }),
       ]
     } else {
       // INFO: If the board target is OpenPLC, we copy the MatIEC library files and C/C++ block templates.
-      const cBlocksHeaderPath = join(this.sourceDirectoryPath, 'arduino', 'c_blocks.h')
-      const cBlocksCodePath = join(this.sourceDirectoryPath, 'Baremetal', 'c_blocks_code.cpp')
+      const cBlocksHeaderPath = join(this.sourceDirectoryPath, 'eurosonic', 'c_blocks.h')
       filesToCopy = [
-        cp(staticMatIECLibraryFilesPath, join(sourceTargetFolderPath, 'lib'), { recursive: true }),
         cp(cBlocksHeaderPath, join(sourceTargetFolderPath, 'c_blocks.h')),
-        cp(cBlocksCodePath, join(sourceTargetFolderPath, 'c_blocks_code.cpp')),
       ]
     }
 
@@ -1181,6 +1218,724 @@ class CompilerModule {
    * It will handle all the compilation process, will orchestrate the various steps involved in compiling a program.
    */
   // Work in progress - we should specify the arguments and the return type correctly.
+  // async compileProgram(
+  //   args: Array<string | null | ProjectState['data']>,
+  //   _mainProcessPort: MessagePortMain,
+  //   mainProcessBridge: {
+  //     makeRuntimeApiRequest: <T = void>(
+  //       ipAddress: string,
+  //       jwtToken: string,
+  //       endpoint: string,
+  //       responseParser?: (data: string) => T,
+  //     ) => Promise<{ success: true; data?: T } | { success: false; error: string }>
+  //   },
+  // ): Promise<void> {
+  //   // Start the main process port to communicate with the renderer process.
+  //   // INFO: This is necessary to send messages back to the renderer process.
+  //   _mainProcessPort.start()
+
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Starting compilation process...' })
+  //   // INFO: We assume the first argument is the project path,
+  //   // INFO: the second argument is the board target, and the third argument is the project data.
+  //   const [projectPath, boardTarget, boardCore, compileOnly, projectData, runtimeIpAddress, runtimeJwtToken] = args as [
+  //     string,
+  //     string,
+  //     string | null,
+  //     boolean,
+  //     ProjectState['data'],
+  //     string | null,
+  //     string | null,
+  //   ]
+
+  //   const boardRuntime = await this.#getBoardRuntime(boardTarget) // Get the board runtime from the hals.json file
+
+  //   const halsContent = await CompilerModule.readJSONFile<HalsFile>(this.halsFilePath)
+
+  //   const normalizedProjectPath = projectPath.replace('project.json', '')
+
+  //   const compilationPath = join(normalizedProjectPath, 'build', boardTarget) // Assuming the build folder is named 'build'
+
+  //   const sourceTargetFolderPath = join(compilationPath, 'src') // Assuming the source folder is named 'src'
+
+  //   let buildMD5Hash: string | null = null
+
+  //   // --- Print basic information ---
+  //   _mainProcessPort.postMessage({
+  //     logLevel: 'info',
+  //     message: `Compiling program for project: ${projectPath} and board target: ${boardTarget}`,
+  //   })
+  //   _mainProcessPort.postMessage({
+  //     logLevel: 'warning',
+  //     message: 'Host Hardware Info:',
+  //   })
+  //   _mainProcessPort.postMessage({
+  //     message: this.getHostHardwareInfo(),
+  //   })
+
+  //   // --- Check tools availability ---
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
+
+  //   try {
+  //     const [arduinoCliCheckResult, iec2cCheckResult] = await Promise.all([
+  //       this.checkArduinoCliAvailability(),
+  //       this.checkIec2cAvailability(),
+  //     ])
+  //     _mainProcessPort.postMessage({
+  //       message: `Arduino CLI available at version ${arduinoCliCheckResult.data}\nIEC2C available at version ${iec2cCheckResult.data}`,
+  //     })
+  //   } catch (_error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+  //       message: `${_error}\nStopping compilation process.`,
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 1: Create basic directories
+  //   try {
+  //     await this.createBasicDirectories(normalizedProjectPath, boardTarget)
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'info',
+  //       message: 'Directories for compilation source files created.',
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+  //       message: `${error}\nStopping compilation process.`,
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 2: Generate XML from JSON
+  //   let generateXMLResult: MethodsResult<{ xmlPath: string; xmlContent: string }> = { success: false }
+  //   try {
+  //     generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectData)
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'info',
+  //       message: `Generated XML from JSON at: ${generateXMLResult.data?.xmlPath as string}`,
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: `Error generating XML from JSON: ${error as string}\nStopping compilation process.`,
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 3: Transpile XML to ST
+  //   const generatedXMLFilePath = join(sourceTargetFolderPath, 'plc.xml') // Assuming the XML file is named 'plc.xml'
+  //   try {
+  //     await this.handleTranspileXMLtoST(generatedXMLFilePath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: `Error transpiling XML to ST: ${error as string}\nStopping compilation process.`,
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // -- Copy static files --
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Copying static files...' })
+  //   try {
+  //     await this.copyStaticFiles(compilationPath, boardRuntime)
+  //     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Static files copied successfully.' })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: `Error copying static files: ${error as string}\nStopping compilation process.`,
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 4: Generate C code from ST
+  //   const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st') // Assuming the ST file is named 'program.st'
+  //   try {
+  //     await this.handleTranspileSTtoC(generatedSTFilePath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 5: Generate debug files
+  //   try {
+  //     await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   try {
+  //     const fs = await import('fs/promises')
+  //     const programStPath = join(sourceTargetFolderPath, 'program.st')
+  //     const programStContent = await fs.readFile(programStPath, 'utf-8')
+  //     const md5Pattern = /\(\*DBG:char md5\[\] = "([a-fA-F0-9]{32})";?\*\)/
+  //     const match = programStContent.match(md5Pattern)
+
+  //     if (match && match[1]) {
+  //       buildMD5Hash = match[1]
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'info',
+  //         message: `Extracted MD5 hash from program.st: ${buildMD5Hash}`,
+  //       })
+  //     } else {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'warn',
+  //         message: 'Could not extract MD5 from program.st, continuing without MD5',
+  //       })
+  //       buildMD5Hash = null
+  //     }
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: `Error extracting MD5 from program.st: ${error as string}`,
+  //     })
+  //     buildMD5Hash = null
+  //   }
+
+  //   // Step 6: Generate glue vars
+  //   try {
+  //     await this.handleGenerateGlueVars(sourceTargetFolderPath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 7: Generate C/C++ blocks header file
+  //   try {
+  //     await this.handleGenerateCBlocksHeader(projectData, sourceTargetFolderPath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 8: Generate C/C++ blocks code file
+  //   try {
+  //     await this.handleGenerateCBlocksCode(projectData, compilationPath, boardRuntime, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 9: Embed C/C++ blocks in program.st for Runtime v3
+  //   if (boardRuntime === 'openplc-compiler' && boardTarget === 'OpenPLC Runtime v3') {
+  //     try {
+  //       await this.embedCBlocksInProgramSt(sourceTargetFolderPath, (data, logLevel) => {
+  //         _mainProcessPort.postMessage({ logLevel, message: data })
+  //       })
+  //     } catch (error) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'error',
+  //         message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //       })
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'error',
+  //         message: 'Stopping compilation process.',
+  //       })
+  //       _mainProcessPort.close()
+  //       return
+  //     }
+  //   }
+
+  //   // -- Verify if the runtime target is Arduino or OpenPLC --
+  //   // INFO: If the runtime target is Arduino, we will continue the compilation process.
+  //   // INFO: If the runtime target is OpenPLC we will finish the process here.
+  //   if (boardRuntime === 'openplc-compiler') {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'info',
+  //       message: 'OpenPLC runtime detected.',
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'info',
+  //       message: 'Source files generated successfully at: ' + sourceTargetFolderPath,
+  //     })
+
+  //     if (compileOnly) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'info',
+  //         message: 'Compile only mode - skipping upload to runtime.',
+  //       })
+  //       _mainProcessPort.postMessage({
+  //         message:
+  //           '-------------------------------------------------------------------------------------------------------------\n',
+  //       })
+  //       _mainProcessPort.close()
+  //       return
+  //     }
+
+  //     if (!runtimeIpAddress || !runtimeJwtToken) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'warning',
+  //         message: 'Runtime not configured or not logged in. Skipping upload to runtime.',
+  //       })
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'info',
+  //         message: 'To upload the program, configure the runtime IP address and login in the device configuration.',
+  //       })
+  //       _mainProcessPort.postMessage({
+  //         message:
+  //           '-------------------------------------------------------------------------------------------------------------\n',
+  //       })
+  //       _mainProcessPort.close()
+  //       return
+  //     }
+
+  //     try {
+  //       const isRuntimeV3 = boardTarget === 'OpenPLC Runtime v3'
+
+  //       let fileBuffer: Buffer
+  //       let filename: string
+  //       let contentType: string
+
+  //       if (isRuntimeV3) {
+  //         _mainProcessPort.postMessage({
+  //           logLevel: 'info',
+  //           message: 'Preparing program.st file for OpenPLC Runtime v3...',
+  //         })
+  //         const programStPath = join(sourceTargetFolderPath, 'program.st')
+
+  //         try {
+  //           await fs.access(programStPath)
+  //         } catch {
+  //           throw new Error(`Required file not found: ${programStPath}. Cannot upload to OpenPLC Runtime v3.`)
+  //         }
+
+  //         fileBuffer = await fs.readFile(programStPath)
+  //         filename = 'program.st'
+  //         contentType = 'text/plain'
+  //       } else {
+  //         _mainProcessPort.postMessage({
+  //           logLevel: 'info',
+  //           message: 'Compressing source files for OpenPLC Runtime v4...',
+  //         })
+  //         fileBuffer = await this.compressSourceFolder(sourceTargetFolderPath)
+  //         filename = 'program.zip'
+  //         contentType = 'application/zip'
+  //       }
+
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'info',
+  //         message: `Uploading program to runtime at ${runtimeIpAddress}...`,
+  //       })
+
+  //       const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2)
+
+  //       const header = Buffer.from(
+  //         `--${boundary}\r\n` +
+  //           `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+  //           `Content-Type: ${contentType}\r\n\r\n`,
+  //       )
+  //       const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
+  //       const body = Buffer.concat([header, fileBuffer, footer] as unknown as ReadonlyArray<Uint8Array>)
+
+  //       await new Promise<void>((resolve, reject) => {
+  //         const req = https.request(
+  //           {
+  //             hostname: runtimeIpAddress,
+  //             port: 8443,
+  //             path: '/api/upload-file',
+  //             method: 'POST',
+  //             headers: {
+  //               'Content-Type': `multipart/form-data; boundary=${boundary}`,
+  //               'Content-Length': body.length,
+  //               Authorization: `Bearer ${runtimeJwtToken}`,
+  //             },
+  //             ...getRuntimeHttpsOptions(),
+  //           },
+  //           (res: IncomingMessage) => {
+  //             let data = ''
+  //             res.on('data', (chunk: Buffer) => {
+  //               data += chunk.toString()
+  //             })
+  //             res.on('end', () => {
+  //               if (res.statusCode === 200) {
+  //                 _mainProcessPort.postMessage({
+  //                   logLevel: 'info',
+  //                   message: 'Program uploaded successfully to runtime.',
+  //                 })
+  //                 try {
+  //                   const response = JSON.parse(data) as { CompilationStatus?: string }
+  //                   _mainProcessPort.postMessage({
+  //                     logLevel: 'info',
+  //                     message: `Runtime compilation started: ${response.CompilationStatus || 'COMPILING'}`,
+  //                   })
+  //                 } catch (_parseError) {
+  //                   _mainProcessPort.postMessage({
+  //                     logLevel: 'warning',
+  //                     message: 'Could not parse runtime response',
+  //                   })
+  //                 }
+
+  //                 const pollCompilationStatus = async () => {
+  //                   let lastLogCount = 0
+  //                   let shouldContinuePolling = true
+  //                   const startTime = Date.now()
+  //                   const timeout = CompilerModule.COMPILATION_STATUS_TIMEOUT_MS
+  //                   const pollInterval = CompilerModule.COMPILATION_STATUS_POLL_INTERVAL_MS
+
+  //                   while (shouldContinuePolling) {
+  //                     if (Date.now() - startTime > timeout) {
+  //                       _mainProcessPort.postMessage({
+  //                         logLevel: 'error',
+  //                         message: 'Compilation status polling timed out after 5 minutes.',
+  //                       })
+  //                       shouldContinuePolling = false
+  //                       continue
+  //                     }
+
+  //                     await new Promise((resolve) => setTimeout(resolve, pollInterval))
+
+  //                     try {
+  //                       const result = await mainProcessBridge.makeRuntimeApiRequest<{
+  //                         status: string
+  //                         logs: string[]
+  //                         exit_code: number | null
+  //                       }>(runtimeIpAddress, runtimeJwtToken, '/api/compilation-status', (data: string) => {
+  //                         return JSON.parse(data) as { status: string; logs: string[]; exit_code: number | null }
+  //                       })
+
+  //                       if (!result.success) {
+  //                         _mainProcessPort.postMessage({
+  //                           logLevel: 'error',
+  //                           message: `Error polling compilation status: ${result.error}`,
+  //                         })
+  //                         shouldContinuePolling = false
+  //                         continue
+  //                       }
+
+  //                       const { status, logs, exit_code } = result.data!
+
+  //                       if (logs.length > lastLogCount) {
+  //                         const newLogs = logs.slice(lastLogCount)
+  //                         newLogs.forEach((log) => {
+  //                           const { level, cleanedMessage } = this.parseLogLevel(log)
+  //                           _mainProcessPort.postMessage({
+  //                             logLevel: level,
+  //                             message: cleanedMessage,
+  //                           })
+  //                         })
+  //                         lastLogCount = logs.length
+  //                       }
+
+  //                       if (status === 'SUCCESS') {
+  //                         _mainProcessPort.postMessage({
+  //                           logLevel: 'info',
+  //                           message: `Compilation completed successfully (exit code: ${exit_code ?? 0}).`,
+  //                         })
+  //                         shouldContinuePolling = false
+  //                       } else if (status === 'FAILED') {
+  //                         _mainProcessPort.postMessage({
+  //                           logLevel: 'error',
+  //                           message: `Compilation failed (exit code: ${exit_code ?? 1}).`,
+  //                         })
+  //                         shouldContinuePolling = false
+  //                       }
+  //                     } catch (pollError) {
+  //                       _mainProcessPort.postMessage({
+  //                         logLevel: 'error',
+  //                         message: `Error polling compilation status: ${pollError instanceof Error ? pollError.message : String(pollError)}`,
+  //                       })
+  //                       shouldContinuePolling = false
+  //                     }
+  //                   }
+  //                 }
+
+  //                 pollCompilationStatus()
+  //                   .then(async () => {
+  //                     if (runtimeIpAddress && runtimeJwtToken) {
+  //                       try {
+  //                         const statusResult = await mainProcessBridge.makeRuntimeApiRequest<string>(
+  //                           runtimeIpAddress,
+  //                           runtimeJwtToken,
+  //                           '/api/status',
+  //                           (data: string) => {
+  //                             const response = JSON.parse(data) as { status: string }
+  //                             return response.status
+  //                           },
+  //                         )
+
+  //                         if (statusResult.success && statusResult.data) {
+  //                           const status = parsePlcStatus(statusResult.data)
+  //                           if (status) {
+  //                             _mainProcessPort.postMessage({
+  //                               plcStatus: status,
+  //                             })
+  //                           }
+  //                         }
+  //                       } catch (_statusError) {
+  //                         // Silently ignore status check errors - this is a best-effort update
+  //                       }
+  //                     }
+
+  //                     _mainProcessPort.postMessage({
+  //                       message:
+  //                         '-------------------------------------------------------------------------------------------------------------\n',
+  //                     })
+  //                     _mainProcessPort.close()
+  //                   })
+  //                   .catch((error) => {
+  //                     _mainProcessPort.postMessage({
+  //                       logLevel: 'error',
+  //                       message: `Unexpected error in compilation polling: ${error instanceof Error ? error.message : String(error)}`,
+  //                     })
+  //                     _mainProcessPort.postMessage({
+  //                       message:
+  //                         '-------------------------------------------------------------------------------------------------------------\n',
+  //                     })
+  //                     _mainProcessPort.close()
+  //                   })
+
+  //                 resolve()
+  //               } else {
+  //                 _mainProcessPort.postMessage({
+  //                   logLevel: 'error',
+  //                   message: `Upload failed: ${data || 'HTTP ' + res.statusCode}`,
+  //                 })
+  //                 reject(new Error(`Upload failed with status ${res.statusCode}`))
+  //               }
+  //             })
+  //           },
+  //         )
+  //         req.setTimeout(300000, () => {
+  //           req.destroy()
+  //           _mainProcessPort.postMessage({
+  //             logLevel: 'error',
+  //             message: 'Upload request timed out after 5 minutes.',
+  //           })
+  //           reject(new Error('Upload timeout'))
+  //         })
+  //         req.on('error', (error: Error) => {
+  //           _mainProcessPort.postMessage({
+  //             logLevel: 'error',
+  //             message: `Upload error: ${error.message}`,
+  //           })
+  //           reject(error)
+  //         })
+  //         req.write(body)
+  //         req.end()
+  //       })
+  //     } catch (error) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'error',
+  //         message: `Failed to upload to runtime: ${error instanceof Error ? error.message : String(error)}`,
+  //       })
+  //       _mainProcessPort.postMessage({
+  //         message:
+  //           '-------------------------------------------------------------------------------------------------------------\n',
+  //       })
+  //       _mainProcessPort.close()
+  //     }
+  //     return
+  //   }
+
+  //   // Step 7: Handle patch files
+  //   try {
+  //     await this.handlePatchGeneratedFiles(compilationPath, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 8: Handle core installation
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling core installation...' })
+  //   try {
+  //     await this.handleCoreInstallation(boardCore, (data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+  //   // Step 9: Handle library installation
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling library installation...' })
+  //   try {
+  //     await this.handleLibraryInstallation((data, logLevel) => {
+  //       _mainProcessPort.postMessage({ logLevel, message: data })
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: 'Stopping compilation process.',
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 10: Handle defines.h file generation
+  //   try {
+  //     if (buildMD5Hash === null) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'error',
+  //         message: 'Build MD5 hash is null, cannot generate defines.h file.',
+  //       })
+  //       _mainProcessPort.close()
+  //       return
+  //     }
+  //     await this.handleGenerateDefinitionsFile({
+  //       projectPath: normalizedProjectPath,
+  //       boardTarget,
+  //       buildMD5Hash,
+  //       _handleOutputData: (data, logLevel) => {
+  //         _mainProcessPort.postMessage({ logLevel, message: data })
+  //       },
+  //     })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //   }
+
+  //   // Step 11: Generate Arduino CPP file
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Generating Arduino CPP file...' })
+  //   try {
+  //     await this.handleGenerateArduinoCppFile(normalizedProjectPath, boardTarget)
+  //     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino CPP file generated successfully.' })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 12: Compile Arduino Program
+  //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Compiling Arduino program...' })
+  //   try {
+  //     await this.handleCompileArduinoProgram({
+  //       boardTarget,
+  //       boardHalsContent: halsContent[boardTarget],
+  //       compilationPath,
+  //       handleOutputData: (data, logLevel) => {
+  //         _mainProcessPort.postMessage({ logLevel, message: data })
+  //       },
+  //     })
+  //     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino program compiled successfully.' })
+  //   } catch (error) {
+  //     _mainProcessPort.postMessage({
+  //       logLevel: 'error',
+  //       message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //     })
+  //     _mainProcessPort.close()
+  //     return
+  //   }
+
+  //   // Step 13: Upload program to board if necessary
+  //   if (!compileOnly) {
+  //     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Uploading program to board...' })
+  //     try {
+  //       await this.handleUploadProgram({
+  //         projectPath: normalizedProjectPath,
+  //         arduinoPlatform: halsContent[boardTarget]['platform'],
+  //         compilationPath,
+  //         handleOutputData: (data, logLevel) => {
+  //           _mainProcessPort.postMessage({ logLevel, message: data })
+  //         },
+  //       })
+  //     } catch (error) {
+  //       _mainProcessPort.postMessage({
+  //         logLevel: 'error',
+  //         message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+  //       })
+  //       _mainProcessPort.close()
+  //       return
+  //     }
+  //   }
+
+  //   // -- Final message --
+  //   _mainProcessPort.postMessage({
+  //     message:
+  //       '-------------------------------------------------------------------------------------------------------------\n',
+  //   })
+
+  //   // INFO: This step is under development.
+  //   setTimeout(() => {
+  //     _mainProcessPort.close()
+  //   }, 25)
+  // }
+
+  //STN: Eurosonic Version
   async compileProgram(
     args: Array<string | null | ProjectState['data']>,
     _mainProcessPort: MessagePortMain,
@@ -1239,12 +1994,11 @@ class CompilerModule {
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
 
     try {
-      const [arduinoCliCheckResult, iec2cCheckResult] = await Promise.all([
-        this.checkArduinoCliAvailability(),
+      const [iec2cCheckResult] = await Promise.all([
         this.checkIec2cAvailability(),
       ])
       _mainProcessPort.postMessage({
-        message: `Arduino CLI available at version ${arduinoCliCheckResult.data}\nIEC2C available at version ${iec2cCheckResult.data}`,
+        message: `IEC2C available at version ${iec2cCheckResult.data}`,
       })
     } catch (_error) {
       _mainProcessPort.postMessage({
@@ -1255,7 +2009,7 @@ class CompilerModule {
       _mainProcessPort.close()
       return
     }
-
+    // STN: STEP1
     // Step 1: Create basic directories
     try {
       await this.createBasicDirectories(normalizedProjectPath, boardTarget)
@@ -1273,6 +2027,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP2
     // Step 2: Generate XML from JSON
     let generateXMLResult: MethodsResult<{ xmlPath: string; xmlContent: string }> = { success: false }
     try {
@@ -1290,6 +2045,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP3
     // Step 3: Transpile XML to ST
     const generatedXMLFilePath = join(sourceTargetFolderPath, 'plc.xml') // Assuming the XML file is named 'plc.xml'
     try {
@@ -1305,6 +2061,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP4
     // -- Copy static files --
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Copying static files...' })
     try {
@@ -1319,6 +2076,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP5
     // Step 4: Generate C code from ST
     const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st') // Assuming the ST file is named 'program.st'
     try {
@@ -1338,6 +2096,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP6
     // Step 5: Generate debug files
     try {
       await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
@@ -1384,6 +2143,7 @@ class CompilerModule {
       buildMD5Hash = null
     }
 
+    // STN: STEP7
     // Step 6: Generate glue vars
     try {
       await this.handleGenerateGlueVars(sourceTargetFolderPath, (data, logLevel) => {
@@ -1402,6 +2162,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP8
     // Step 7: Generate C/C++ blocks header file
     try {
       await this.handleGenerateCBlocksHeader(projectData, sourceTargetFolderPath, (data, logLevel) => {
@@ -1420,6 +2181,7 @@ class CompilerModule {
       return
     }
 
+    // STN: STEP9
     // Step 8: Generate C/C++ blocks code file
     try {
       await this.handleGenerateCBlocksCode(projectData, compilationPath, boardRuntime, (data, logLevel) => {
@@ -1438,371 +2200,62 @@ class CompilerModule {
       return
     }
 
-    // Step 9: Embed C/C++ blocks in program.st for Runtime v3
-    if (boardRuntime === 'openplc-compiler' && boardTarget === 'OpenPLC Runtime v3') {
-      try {
-        await this.embedCBlocksInProgramSt(sourceTargetFolderPath, (data, logLevel) => {
-          _mainProcessPort.postMessage({ logLevel, message: data })
-        })
-      } catch (error) {
-        _mainProcessPort.postMessage({
-          logLevel: 'error',
-          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-        })
-        _mainProcessPort.postMessage({
-          logLevel: 'error',
-          message: 'Stopping compilation process.',
-        })
-        _mainProcessPort.close()
-        return
-      }
-    }
-
-    // -- Verify if the runtime target is Arduino or OpenPLC --
-    // INFO: If the runtime target is Arduino, we will continue the compilation process.
-    // INFO: If the runtime target is OpenPLC we will finish the process here.
-    if (boardRuntime === 'openplc-compiler') {
-      _mainProcessPort.postMessage({
-        logLevel: 'info',
-        message: 'OpenPLC runtime detected.',
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'info',
-        message: 'Source files generated successfully at: ' + sourceTargetFolderPath,
-      })
-
-      if (compileOnly) {
-        _mainProcessPort.postMessage({
-          logLevel: 'info',
-          message: 'Compile only mode - skipping upload to runtime.',
-        })
-        _mainProcessPort.postMessage({
-          message:
-            '-------------------------------------------------------------------------------------------------------------\n',
-        })
-        _mainProcessPort.close()
-        return
-      }
-
-      if (!runtimeIpAddress || !runtimeJwtToken) {
-        _mainProcessPort.postMessage({
-          logLevel: 'warning',
-          message: 'Runtime not configured or not logged in. Skipping upload to runtime.',
-        })
-        _mainProcessPort.postMessage({
-          logLevel: 'info',
-          message: 'To upload the program, configure the runtime IP address and login in the device configuration.',
-        })
-        _mainProcessPort.postMessage({
-          message:
-            '-------------------------------------------------------------------------------------------------------------\n',
-        })
-        _mainProcessPort.close()
-        return
-      }
-
-      try {
-        const isRuntimeV3 = boardTarget === 'OpenPLC Runtime v3'
-
-        let fileBuffer: Buffer
-        let filename: string
-        let contentType: string
-
-        if (isRuntimeV3) {
-          _mainProcessPort.postMessage({
-            logLevel: 'info',
-            message: 'Preparing program.st file for OpenPLC Runtime v3...',
-          })
-          const programStPath = join(sourceTargetFolderPath, 'program.st')
-
-          try {
-            await fs.access(programStPath)
-          } catch {
-            throw new Error(`Required file not found: ${programStPath}. Cannot upload to OpenPLC Runtime v3.`)
-          }
-
-          fileBuffer = await fs.readFile(programStPath)
-          filename = 'program.st'
-          contentType = 'text/plain'
-        } else {
-          _mainProcessPort.postMessage({
-            logLevel: 'info',
-            message: 'Compressing source files for OpenPLC Runtime v4...',
-          })
-          fileBuffer = await this.compressSourceFolder(sourceTargetFolderPath)
-          filename = 'program.zip'
-          contentType = 'application/zip'
-        }
-
-        _mainProcessPort.postMessage({
-          logLevel: 'info',
-          message: `Uploading program to runtime at ${runtimeIpAddress}...`,
-        })
-
-        const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2)
-
-        const header = Buffer.from(
-          `--${boundary}\r\n` +
-            `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-            `Content-Type: ${contentType}\r\n\r\n`,
-        )
-        const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
-        const body = Buffer.concat([header, fileBuffer, footer] as unknown as ReadonlyArray<Uint8Array>)
-
-        await new Promise<void>((resolve, reject) => {
-          const req = https.request(
-            {
-              hostname: runtimeIpAddress,
-              port: 8443,
-              path: '/api/upload-file',
-              method: 'POST',
-              headers: {
-                'Content-Type': `multipart/form-data; boundary=${boundary}`,
-                'Content-Length': body.length,
-                Authorization: `Bearer ${runtimeJwtToken}`,
-              },
-              ...getRuntimeHttpsOptions(),
-            },
-            (res: IncomingMessage) => {
-              let data = ''
-              res.on('data', (chunk: Buffer) => {
-                data += chunk.toString()
-              })
-              res.on('end', () => {
-                if (res.statusCode === 200) {
-                  _mainProcessPort.postMessage({
-                    logLevel: 'info',
-                    message: 'Program uploaded successfully to runtime.',
-                  })
-                  try {
-                    const response = JSON.parse(data) as { CompilationStatus?: string }
-                    _mainProcessPort.postMessage({
-                      logLevel: 'info',
-                      message: `Runtime compilation started: ${response.CompilationStatus || 'COMPILING'}`,
-                    })
-                  } catch (_parseError) {
-                    _mainProcessPort.postMessage({
-                      logLevel: 'warning',
-                      message: 'Could not parse runtime response',
-                    })
-                  }
-
-                  const pollCompilationStatus = async () => {
-                    let lastLogCount = 0
-                    let shouldContinuePolling = true
-                    const startTime = Date.now()
-                    const timeout = CompilerModule.COMPILATION_STATUS_TIMEOUT_MS
-                    const pollInterval = CompilerModule.COMPILATION_STATUS_POLL_INTERVAL_MS
-
-                    while (shouldContinuePolling) {
-                      if (Date.now() - startTime > timeout) {
-                        _mainProcessPort.postMessage({
-                          logLevel: 'error',
-                          message: 'Compilation status polling timed out after 5 minutes.',
-                        })
-                        shouldContinuePolling = false
-                        continue
-                      }
-
-                      await new Promise((resolve) => setTimeout(resolve, pollInterval))
-
-                      try {
-                        const result = await mainProcessBridge.makeRuntimeApiRequest<{
-                          status: string
-                          logs: string[]
-                          exit_code: number | null
-                        }>(runtimeIpAddress, runtimeJwtToken, '/api/compilation-status', (data: string) => {
-                          return JSON.parse(data) as { status: string; logs: string[]; exit_code: number | null }
-                        })
-
-                        if (!result.success) {
-                          _mainProcessPort.postMessage({
-                            logLevel: 'error',
-                            message: `Error polling compilation status: ${result.error}`,
-                          })
-                          shouldContinuePolling = false
-                          continue
-                        }
-
-                        const { status, logs, exit_code } = result.data!
-
-                        if (logs.length > lastLogCount) {
-                          const newLogs = logs.slice(lastLogCount)
-                          newLogs.forEach((log) => {
-                            const { level, cleanedMessage } = this.parseLogLevel(log)
-                            _mainProcessPort.postMessage({
-                              logLevel: level,
-                              message: cleanedMessage,
-                            })
-                          })
-                          lastLogCount = logs.length
-                        }
-
-                        if (status === 'SUCCESS') {
-                          _mainProcessPort.postMessage({
-                            logLevel: 'info',
-                            message: `Compilation completed successfully (exit code: ${exit_code ?? 0}).`,
-                          })
-                          shouldContinuePolling = false
-                        } else if (status === 'FAILED') {
-                          _mainProcessPort.postMessage({
-                            logLevel: 'error',
-                            message: `Compilation failed (exit code: ${exit_code ?? 1}).`,
-                          })
-                          shouldContinuePolling = false
-                        }
-                      } catch (pollError) {
-                        _mainProcessPort.postMessage({
-                          logLevel: 'error',
-                          message: `Error polling compilation status: ${pollError instanceof Error ? pollError.message : String(pollError)}`,
-                        })
-                        shouldContinuePolling = false
-                      }
-                    }
-                  }
-
-                  pollCompilationStatus()
-                    .then(async () => {
-                      if (runtimeIpAddress && runtimeJwtToken) {
-                        try {
-                          const statusResult = await mainProcessBridge.makeRuntimeApiRequest<string>(
-                            runtimeIpAddress,
-                            runtimeJwtToken,
-                            '/api/status',
-                            (data: string) => {
-                              const response = JSON.parse(data) as { status: string }
-                              return response.status
-                            },
-                          )
-
-                          if (statusResult.success && statusResult.data) {
-                            const status = parsePlcStatus(statusResult.data)
-                            if (status) {
-                              _mainProcessPort.postMessage({
-                                plcStatus: status,
-                              })
-                            }
-                          }
-                        } catch (_statusError) {
-                          // Silently ignore status check errors - this is a best-effort update
-                        }
-                      }
-
-                      _mainProcessPort.postMessage({
-                        message:
-                          '-------------------------------------------------------------------------------------------------------------\n',
-                      })
-                      _mainProcessPort.close()
-                    })
-                    .catch((error) => {
-                      _mainProcessPort.postMessage({
-                        logLevel: 'error',
-                        message: `Unexpected error in compilation polling: ${error instanceof Error ? error.message : String(error)}`,
-                      })
-                      _mainProcessPort.postMessage({
-                        message:
-                          '-------------------------------------------------------------------------------------------------------------\n',
-                      })
-                      _mainProcessPort.close()
-                    })
-
-                  resolve()
-                } else {
-                  _mainProcessPort.postMessage({
-                    logLevel: 'error',
-                    message: `Upload failed: ${data || 'HTTP ' + res.statusCode}`,
-                  })
-                  reject(new Error(`Upload failed with status ${res.statusCode}`))
-                }
-              })
-            },
-          )
-          req.setTimeout(300000, () => {
-            req.destroy()
-            _mainProcessPort.postMessage({
-              logLevel: 'error',
-              message: 'Upload request timed out after 5 minutes.',
-            })
-            reject(new Error('Upload timeout'))
-          })
-          req.on('error', (error: Error) => {
-            _mainProcessPort.postMessage({
-              logLevel: 'error',
-              message: `Upload error: ${error.message}`,
-            })
-            reject(error)
-          })
-          req.write(body)
-          req.end()
-        })
-      } catch (error) {
-        _mainProcessPort.postMessage({
-          logLevel: 'error',
-          message: `Failed to upload to runtime: ${error instanceof Error ? error.message : String(error)}`,
-        })
-        _mainProcessPort.postMessage({
-          message:
-            '-------------------------------------------------------------------------------------------------------------\n',
-        })
-        _mainProcessPort.close()
-      }
-      return
-    }
-
+    // STN: STEP10
     // Step 7: Handle patch files
-    try {
-      await this.handlePatchGeneratedFiles(compilationPath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
+    // try {
+    //   await this.handlePatchGeneratedFiles(compilationPath, (data, logLevel) => {
+    //     _mainProcessPort.postMessage({ logLevel, message: data })
+    //   })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: 'Stopping compilation process.',
+    //   })
+    //   _mainProcessPort.close()
+    //   return
+    // }
 
-    // Step 8: Handle core installation
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling core installation...' })
-    try {
-      await this.handleCoreInstallation(boardCore, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
+    // // Step 8: Handle core installation
+    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling core installation...' })
+    // try {
+    //   await this.handleCoreInstallation(boardCore, (data, logLevel) => {
+    //     _mainProcessPort.postMessage({ logLevel, message: data })
+    //   })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: 'Stopping compilation process.',
+    //   })
+    //   _mainProcessPort.close()
+    //   return
+    // }
+
     // Step 9: Handle library installation
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling library installation...' })
-    try {
-      await this.handleLibraryInstallation((data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
+    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Handling library installation...' })
+    // try {
+    //   await this.handleLibraryInstallation((data, logLevel) => {
+    //     _mainProcessPort.postMessage({ logLevel, message: data })
+    //   })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: 'Stopping compilation process.',
+    //   })
+    //   _mainProcessPort.close()
+    //   return
+    // }
 
     // Step 10: Handle defines.h file generation
     try {
@@ -1830,39 +2283,39 @@ class CompilerModule {
     }
 
     // Step 11: Generate Arduino CPP file
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Generating Arduino CPP file...' })
-    try {
-      await this.handleGenerateArduinoCppFile(normalizedProjectPath, boardTarget)
-      _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino CPP file generated successfully.' })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.close()
-      return
-    }
+    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Generating Arduino CPP file...' })
+    // try {
+    //   await this.handleGenerateArduinoCppFile(normalizedProjectPath, boardTarget)
+    //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino CPP file generated successfully.' })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    //   _mainProcessPort.close()
+    //   return
+    // }
 
     // Step 12: Compile Arduino Program
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Compiling Arduino program...' })
-    try {
-      await this.handleCompileArduinoProgram({
-        boardTarget,
-        boardHalsContent: halsContent[boardTarget],
-        compilationPath,
-        handleOutputData: (data, logLevel) => {
-          _mainProcessPort.postMessage({ logLevel, message: data })
-        },
-      })
-      _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino program compiled successfully.' })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.close()
-      return
-    }
+    // _mainProcessPort.postMessage({ logLevel: 'info', message: 'Compiling Arduino program...' })
+    // try {
+    //   await this.handleCompileArduinoProgram({
+    //     boardTarget,
+    //     boardHalsContent: halsContent[boardTarget],
+    //     compilationPath,
+    //     handleOutputData: (data, logLevel) => {
+    //       _mainProcessPort.postMessage({ logLevel, message: data })
+    //     },
+    //   })
+    //   _mainProcessPort.postMessage({ logLevel: 'info', message: 'Arduino program compiled successfully.' })
+    // } catch (error) {
+    //   _mainProcessPort.postMessage({
+    //     logLevel: 'error',
+    //     message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+    //   })
+    //   _mainProcessPort.close()
+    //   return
+    // }
 
     // Step 13: Upload program to board if necessary
     if (!compileOnly) {

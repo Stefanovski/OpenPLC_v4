@@ -1,0 +1,18 @@
+{
+  "baud": "115200",
+  "board_type": "EUROSONIC (Generator Gen2)",
+  "com_port": "/dev/ttyUSB0",
+  "dns": "8.8.8.8",
+  "gateway": "192.168.200.1",
+  "ip": "192.168.200.240",
+  "mac": "0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD",
+  "mb_serial": false,
+  "mb_tcp": true,
+  "pwd": "password",
+  "serial_iface": "Serial",
+  "slaveid": "1",
+  "ssid": "",
+  "subnet": "255.255.255.0",
+  "tcp_iface": "Ethernet",
+  "txpin": "-1"
+}
