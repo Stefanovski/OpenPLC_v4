@@ -2,7 +2,7 @@ import { exec, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
-import https from 'node:https'
+//import https from 'node:https'
 import os from 'node:os'
 import path from 'node:path'
 import { join } from 'node:path'
@@ -14,8 +14,8 @@ import type { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import { XmlGenerator } from '@root/utils'
 import { type CppPouData as CppPouDataCode, generateCBlocksCode } from '@root/utils/cpp/generateCBlocksCode'
 import { type CppPouData as CppPouDataHeader, generateCBlocksHeader } from '@root/utils/cpp/generateCBlocksHeader'
-import { parsePlcStatus } from '@root/utils/plc-status'
-import { getRuntimeHttpsOptions } from '@root/utils/runtime-https-config'
+//import { parsePlcStatus } from '@root/utils/plc-status'
+//import { getRuntimeHttpsOptions } from '@root/utils/runtime-https-config'
 import { app as electronApp, dialog } from 'electron'
 import type { MessagePortMain } from 'electron/main'
 import JSZip from 'jszip'
@@ -1297,7 +1297,7 @@ class CompilerModule {
           await addFilesToZip(fullPath, zipFolder, zipPath)
         } else {
           const fileContent = await fs.readFile(fullPath)
-          zipFolder.file(zipPath, fileContent)
+          zipFolder.file(zipPath, fileContent as any)
         }
       }
     }

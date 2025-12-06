@@ -1,6 +1,6 @@
 // import './splash-screen/index'
 
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer} from 'electron'
 
 import rendererProcessBridge from '../ipc/renderer'
 
@@ -13,3 +13,8 @@ declare global {
     bridge: ElectronHandler
   }
 }
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  discoverDevices: () => ipcRenderer.invoke('device-discover'),
+  configureDevice: (config: any) => ipcRenderer.invoke('device-configure', config),
+});

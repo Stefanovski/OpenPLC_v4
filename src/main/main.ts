@@ -22,6 +22,7 @@ import { logger, PouService, ProjectService, UserService } from '../backend/edit
 import { resolveHtmlPath } from '../backend/editor/utils'
 import { getErrorMessage } from '../frontend/utils/get-error-message'
 import MenuBuilder from './menu'
+import { DiscoveryModule } from './modules/discover/discovery' // <--- NEU
 import MainProcessBridge from './modules/ipc/main'
 import { store } from './modules/store'
 
@@ -293,6 +294,8 @@ const createMainWindow = async () => {
   const compilerModule = new CompilerModule()
 
   const hardwareModule = new HardwareModule()
+
+  new DiscoveryModule()
 
   const mainIpcModule = new MainProcessBridge({
     mainWindow,
