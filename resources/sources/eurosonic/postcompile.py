@@ -2,8 +2,12 @@ import sys
 import os
 import hashlib
 import struct
+import re # NEU: Für Regex Suche in defines.h
 
 HEADER_SIZE = 1024  # 0x400
+
+# Pfad zur defines.h relativ zum Skript-Verzeichnis
+DEFINES_REL_PATH = os.path.join("src", "defines.h")
 
 def pad_binary(filename, alignment):
     """Pad the binary file to the specified alignment."""
@@ -30,11 +34,44 @@ def header_exists(filename):
         f.seek(8)
         data = f.read(4)
         if len(data) < 4:
-            return False  # Datei zu klein � kein Header vorhanden
+            return False  # Datei zu klein  kein Header vorhanden
         header_start = struct.unpack('<I', data)[0]
         return header_start == 0xCAFEBABE
 
-def update_or_prepend_header(filename, md5_hash, override, custom_name=None):
+# --- NEU: Funktion zum Auslesen des Strings aus defines.h ---
+def get_plc_md5_string():
+    """
+    Liest ./src/defines.h und extrahiert PROGRAM_MD5.
+    Gibt Bytes der Länge 32 zurück.
+    """
+    # Absoluter Pfad basierend auf dem Ort dieses Skripts
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    defines_path = os.path.join(script_dir, DEFINES_REL_PATH)
+
+    print(f"Suche nach defines.h in: {defines_path}")
+
+    if not os.path.exists(defines_path):
+        print(f"WARNUNG: {defines_path} nicht gefunden! plcMD5 wird mit Nullen gefüllt.")
+        return b'\x00' * 32
+
+    try:
+        with open(defines_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            # Regex sucht: #define PROGRAM_MD5 "irgendwas"
+            match = re.search(r'#define\s+PROGRAM_MD5\s+"([a-fA-F0-9]{32})"', content)
+            if match:
+                md5_str = match.group(1)
+                print(f"Gefundener PLC MD5: {md5_str}")
+                return md5_str.encode('ascii')
+            else:
+                print("WARNUNG: PROGRAM_MD5 Makro in defines.h nicht gefunden.")
+                return b'\x00' * 32
+    except Exception as e:
+        print(f"FEHLER beim Lesen von defines.h: {e}")
+        return b'\x00' * 32
+
+# --- Signatur erweitert: plc_md5_string hinzugefügt ---
+def update_or_prepend_header(filename, md5_hash, plc_md5_string, override, custom_name=None):
     """Update or prepend the 1024-byte header to the binary file."""
     file_size = os.path.getsize(filename) - (HEADER_SIZE if override else 0)
     binary_length = file_size
@@ -53,12 +90,23 @@ def update_or_prepend_header(filename, md5_hash, override, custom_name=None):
     uiHeaderStart = 0xCAFEBABE
     uiBinaryLength = binary_length
     aInfo = base_filename.encode("ascii")[:31] + b"\0"
-    aMD5 = md5_hash
+    aMD5 = md5_hash # Das ist der Runtime Hash (binär)
     uiState = bytes([1])  # 0x01 = FW_STATE_PENDING
+    
+    # NEU: Sicherstellen dass der PLC String genau 32 bytes hat
+    plcMD5 = plc_md5_string.ljust(32, b'\x00')[:32]
 
     # Build header
-    header = struct.pack("<8sII32s16sB", first_8_bytes,
-                         uiHeaderStart, uiBinaryLength, aInfo, aMD5, uiState[0])
+    # Format erweitert: ...B32s -> B (uiState) gefolgt von 32s (plcMD5 String)
+    header = struct.pack("<8sII32s16sB32s", 
+                         first_8_bytes,
+                         uiHeaderStart, 
+                         uiBinaryLength, 
+                         aInfo, 
+                         aMD5, 
+                         uiState[0],
+                         plcMD5) # NEU: Angefügt
+                         
     header = header.ljust(HEADER_SIZE, b"\x00")
 
     if override:
@@ -95,7 +143,11 @@ if __name__ == "__main__":
 
     md5_hash = calculate_md5(filename, exclude_header=override)
 
-    update_or_prepend_header(filename, md5_hash, override, custom_name)
+    # NEU: PLC MD5 auslesen
+    plc_md5_str = get_plc_md5_string()
+
+    # NEU: Übergeben an die Update Funktion
+    update_or_prepend_header(filename, md5_hash, plc_md5_str, override, custom_name)
 
     print(f"Processed '{filename}':")
     print(f"- Padded to {alignment}-byte alignment.")
@@ -105,3 +157,6 @@ if __name__ == "__main__":
         print(f"- Prepended 1024-byte header with calculated MD5 and other information.")
     if custom_name:
         print(f"- Used custom filename '{custom_name}' in the header.")
+    
+    # Info Ausgabe
+    print(f"- PLC MD5 patched into header: {plc_md5_str.decode('ascii', errors='ignore')}")
