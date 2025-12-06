@@ -4,7 +4,7 @@ import ReactRefreshWebpackPlugin from '@pmmmwh/react-refresh-webpack-plugin'
 import autoprefixer from 'autoprefixer'
 import chalk from 'chalk'
 import { execSync, spawn } from 'child_process'
-import EslintPlugin from 'eslint-webpack-plugin'
+//import EslintPlugin from 'eslint-webpack-plugin'
 import fs from 'fs'
 import HtmlWebpackPlugin from 'html-webpack-plugin'
 import MonacoEditorWebpackPlugin from 'monaco-editor-webpack-plugin'
@@ -197,11 +197,11 @@ const configuration: ICustomConfiguration = {
       languages: ['python'],
     }),
 
-    new EslintPlugin({
-      configType: 'flat',
-      extensions: ['ts', 'tsx'],
-      eslintPath: 'eslint/use-at-your-own-risk',
-    }),
+    // new EslintPlugin({
+    //   configType: 'flat',
+    //   extensions: ['ts', 'tsx'],
+    //   eslintPath: 'eslint/use-at-your-own-risk',
+    // }),
   ],
 
   node: {

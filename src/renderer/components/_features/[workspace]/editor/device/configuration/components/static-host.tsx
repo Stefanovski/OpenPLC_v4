@@ -2,6 +2,7 @@ import { INPUT_STYLES } from '@data/constants/device-styles'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { staticHostSelectors } from '@hooks/use-store-selectors'
 import { InputWithRef, Label } from '@root/renderer/components/_atoms'
+import { DeviceDiscoveryDialog } from '@root/renderer/components/_molecules/discovery/device-discovery-dialog'
 import { ComponentPropsWithoutRef, memo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -22,6 +23,7 @@ const StaticHostConfigurationComponent = memo(function (props: StaticHostConfigu
   const setStaticHostConfiguration = staticHostSelectors.useSetStaticHostConfiguration()
   const {
     control,
+    setValue,
     formState: { errors },
   } = useForm<StaticHostSchema>({
     mode: 'onChange', // Can be on touched...
@@ -31,7 +33,7 @@ const StaticHostConfigurationComponent = memo(function (props: StaticHostConfigu
   return (
     <div id='static-host-config-form-container' className='flex gap-6' {...props}>
       <div id='static-host-form-config-left-slot' className='flex flex-1 flex-col gap-4'>
-        <div id='static-host-ip-container' className='flex w-full flex-1 items-center justify-start gap-1'>
+        <div id='static-host-ip-container' className='flex w-full flex-1 items-center justify-start gap-2'>
           <Label
             id='static-host-ip-config-id-input-label'
             htmlFor='static-host-ip-config-id-input'
@@ -138,6 +140,19 @@ const StaticHostConfigurationComponent = memo(function (props: StaticHostConfigu
           />
         </div>
       </div>
+
+      {/* Der Button sitzt etwas tiefer wegen dem Label, daher mt-6 oder flex alignment anpassen */}
+      <div className='mt-5'> 
+        <DeviceDiscoveryDialog 
+          onSelectIp={(ip) => {
+            // Hier wird die IP aus dem Dialog in dein Formular geschrieben
+            setValue('ipAddress', ip, { shouldValidate: true, shouldDirty: true })
+            // Zur Sicherheit auch direkt in den Store speichern
+            setStaticHostConfiguration({ ipAddress: ip })
+          }} 
+        />
+      </div>
+ 
     </div>
   )
 })

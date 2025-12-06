@@ -2,7 +2,7 @@
  * Builds the DLL for development electron renderer process
  */
 
-import ESLintPlugin from 'eslint-webpack-plugin'
+//import ESLintPlugin from 'eslint-webpack-plugin'
 import { join } from 'path'
 import webpack from 'webpack'
 import { merge } from 'webpack-merge'
@@ -74,11 +74,11 @@ const configuration: webpack.Configuration = {
         },
       },
     }),
-    new ESLintPlugin({
-      configType: 'flat',
-      extensions: ['ts', 'tsx'],
-      eslintPath: 'eslint/use-at-your-own-risk',
-    }),
+    // new ESLintPlugin({
+    //   configType: 'flat',
+    //   extensions: ['ts', 'tsx'],
+    //   eslintPath: 'eslint/use-at-your-own-risk',
+    // }),
   ],
 }
 
