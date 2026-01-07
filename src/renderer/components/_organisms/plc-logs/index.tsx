@@ -33,7 +33,7 @@ const PlcLogs = memo(() => {
   return (
     <div
       aria-label='PLC Logs'
-      className='relative h-full w-full overflow-auto text-cp-base font-semibold text-brand-dark focus:outline-none dark:text-neutral-50'
+      className='relative h-full w-full select-text overflow-auto text-cp-base font-semibold text-brand-dark focus:outline-none dark:text-neutral-50'
     >
       {logLines.length > 0 &&
         logLines.map((line, index) => (
