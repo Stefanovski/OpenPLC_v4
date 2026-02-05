@@ -104,6 +104,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const plcStatus = useOpenPLCStore((state): RuntimeConnection['plcStatus'] => state.runtimeConnection.plcStatus)
   const jwtToken = useOpenPLCStore((state) => state.runtimeConnection.jwtToken)
   const runtimeIpAddress = useOpenPLCStore((state) => state.deviceDefinitions.configuration.runtimeIpAddress)
+  const isDebuggerVisible = useOpenPLCStore((state) => state.workspace.isDebuggerVisible)
 
   const applyEarlyCommentWrapping = (projectData: PLCProjectData): PLCProjectData => {
     return {
@@ -1187,6 +1188,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         <DebuggerButton
           onClick={() => void handleDebuggerClick()}
           disabled={isDebuggerProcessing}
+          isActive={isDebuggerVisible}
           className={cn(isDebuggerProcessing && 'cursor-not-allowed opacity-50')}
         />
       </TooltipSidebarWrapperButton>
