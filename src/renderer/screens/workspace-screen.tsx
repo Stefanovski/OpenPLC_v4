@@ -34,7 +34,7 @@ import { StandardFunctionBlocks } from '../data/library/standard-function-blocks
 import { useOpenPLCStore } from '../store'
 import { getVariableSize, parseVariableValue } from '../utils/variable-sizes'
 
-const DEBUGGER_POLL_INTERVAL_MS = 200
+const DEBUGGER_POLL_INTERVAL_MS = 50
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
 
 const WorkspaceScreen = () => {
@@ -183,7 +183,7 @@ const WorkspaceScreen = () => {
 
     if (!isDebuggerVisible) {
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current)
+        clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
       }
       variableInfoMapRef.current = null
@@ -199,7 +199,7 @@ const WorkspaceScreen = () => {
     if (isRuntimeTarget) {
       if (connectionStatus !== 'connected') {
         if (pollingIntervalRef.current) {
-          clearTimeout(pollingIntervalRef.current)
+          clearInterval(pollingIntervalRef.current)
           pollingIntervalRef.current = null
         }
         variableInfoMapRef.current = null
@@ -1460,18 +1460,24 @@ const WorkspaceScreen = () => {
       }
     }
 
-    const schedulePoll = () => {
-      if (!isMountedRef.current) return
-      pollingIntervalRef.current = setTimeout(() => {
-        void pollVariables().finally(() => schedulePoll())
-      }, DEBUGGER_POLL_INTERVAL_MS)
-    }
-    // Fire first poll immediately, then chain
-    void pollVariables().finally(() => schedulePoll())
+    let isPolling = false
+    // Fire first poll immediately
+    isPolling = true
+    void pollVariables().finally(() => {
+      isPolling = false
+    })
+    // Schedule fixed-rate polling; skip tick if previous poll is still in progress
+    pollingIntervalRef.current = setInterval(() => {
+      if (!isMountedRef.current || isPolling) return
+      isPolling = true
+      void pollVariables().finally(() => {
+        isPolling = false
+      })
+    }, DEBUGGER_POLL_INTERVAL_MS)
 
     return () => {
       if (pollingIntervalRef.current) {
-        clearTimeout(pollingIntervalRef.current)
+        clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
       }
       void window.bridge.debuggerDisconnect().catch((error: unknown) => {
