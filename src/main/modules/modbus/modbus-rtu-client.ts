@@ -124,10 +124,39 @@ export class ModbusRtuClient {
     }
   }
 
+  private flushInputBuffer(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.serialPort || !this.serialPort.isOpen) {
+        resolve()
+        return
+      }
+
+      this.serialPort.flush((err: Error | null) => {
+        if (err) {
+          console.warn('Warning: Failed to flush serial port:', err.message)
+        }
+        resolve()
+      })
+    })
+  }
+
+  private sendRequestMutex: Promise<void> = Promise.resolve()
+
   private async sendRequest(request: Buffer): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      this.sendRequestMutex = this.sendRequestMutex.then(
+        () => this.sendRequestImpl(request).then(resolve, reject),
+        () => this.sendRequestImpl(request).then(resolve, reject),
+      )
+    })
+  }
+
+  private async sendRequestImpl(request: Buffer): Promise<Buffer> {
     if (!this.serialPort || !this.serialPort.isOpen) {
       throw new Error('Serial port is not open')
     }
+
+    await this.flushInputBuffer()
 
     return new Promise((resolve, reject) => {
       const timeoutHandle = setTimeout(() => {
@@ -159,10 +188,7 @@ export class ModbusRtuClient {
           const calculatedCrc = this.calculateCrc(responseBuffer.slice(0, responseBuffer.length - 2))
 
           if (receivedCrc !== calculatedCrc) {
-            // OpenPLC debugger ignores CRC errors
-            //reject(new Error('CRC validation failed'))
-            //return
-            console.warn('Warning: CRC validation failed, but continuing anyway')
+            // OpenPLC debugger ignores CRC errors — mismatch is non-fatal
           }
 
           const responseWithoutCrc = responseBuffer.slice(0, responseBuffer.length - 2)
