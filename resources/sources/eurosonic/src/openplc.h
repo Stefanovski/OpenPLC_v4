@@ -45,13 +45,13 @@ extern IEC_UINT *int_output[MAX_ANALOG_OUTPUT];
 
 #else
 
-#define MAX_DIGITAL_INPUT          56
-#define MAX_DIGITAL_OUTPUT         56
-#define MAX_ANALOG_INPUT           32
-#define MAX_ANALOG_OUTPUT          32
-#define MAX_MEMORY_WORD            20
-#define MAX_MEMORY_DWORD           20
-#define MAX_MEMORY_LWORD           20
+#define MAX_DIGITAL_INPUT    16384   // Entspricht PLC_SIZE_BOOL_IN (0x4000)
+#define MAX_DIGITAL_OUTPUT   16384   // Entspricht PLC_SIZE_BOOL_OUT (0x4000)
+#define MAX_ANALOG_INPUT     16384   // Entspricht PLC_SIZE_INT_IN (0x4000)
+#define MAX_ANALOG_OUTPUT    16384   // Entspricht PLC_SIZE_INT_OUT (0x4000)
+#define MAX_MEMORY_WORD      8192    // Entspricht PLC_SIZE_MEM_INT (0x2000)
+#define MAX_MEMORY_DWORD     8192    // Entspricht PLC_SIZE_MEM_DINT (0x2000)
+#define MAX_MEMORY_LWORD     8192    // Entspricht PLC_SIZE_MEM_LINT (0x2000)
 
 extern IEC_BOOL *bool_input[MAX_DIGITAL_INPUT/8][8];
 extern IEC_BOOL *bool_output[MAX_DIGITAL_OUTPUT/8][8];

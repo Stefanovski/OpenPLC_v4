@@ -10,13 +10,13 @@
 
 #include "iec_std_lib.h"
 
-#define PLC_SIZE_BOOL_IN   0x400
-#define PLC_SIZE_BOOL_OUT  0x400
-#define PLC_SIZE_INT_IN    0x800
-#define PLC_SIZE_INT_OUT   0x800
-#define PLC_SIZE_MEM_INT   0x1000
-#define PLC_SIZE_MEM_DINT  0x1000
-#define PLC_SIZE_MEM_LINT  0x1000
+#define PLC_SIZE_BOOL_IN   0x4000
+#define PLC_SIZE_BOOL_OUT  0x4000
+#define PLC_SIZE_INT_IN    0x4000
+#define PLC_SIZE_INT_OUT   0x4000
+#define PLC_SIZE_MEM_INT   0x2000
+#define PLC_SIZE_MEM_DINT  0x2000
+#define PLC_SIZE_MEM_LINT  0x2000
 
 #define __LOCATED_VAR(type, name, ...) type __##name;
 #include "LOCATED_VARIABLES.h"

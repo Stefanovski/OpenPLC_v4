@@ -15,6 +15,7 @@ from typing import Tuple, Optional
 import re
 from gettext import ngettext as _n
 # from asciidoc.a2x import cli
+import tftpy #
 
 # List of OPLC dependencies
 # This list can be reduced, as soon as the HALs list provides board specific library dependencies.
@@ -761,52 +762,112 @@ def build(st_file, definitions, arduino_sketch, port, send_text, board_hal, buil
         cwd = _eurosonic_openplc_path
         return runCommandToWin(send_text, cmd, cwd=cwd) == 0
 
+    # def upload_binary(url, file_path, field_name="file", additional_data=None):
+    #     """
+    #     Uploads a binary file with a custom Content-Type header order.
+
+    #     :param url: The endpoint to which the file will be uploaded.
+    #     :param file_path: The path to the binary file to be uploaded.
+    #     :param field_name: The field name for the file in the multipart form-data (default is 'file').
+    #     :param additional_data: A dictionary of additional form data to include in the request.
+    #     :return: Response object from the HTTP request.
+    #     """
+    #     # Define the boundary
+    #     boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    #     additional_data = additional_data or {}
+
+    #     # Construct the body
+    #     body = []
+
+    #     # Add additional form data
+    #     for key, value in additional_data.items():
+    #         body.append(f"--{boundary}")
+    #         body.append(f'Content-Disposition: form-data; name="{key}"\r\n')
+    #         body.append(value)
+
+    #     # Add the binary file
+    #     body.append(f"--{boundary}")
+    #     body.append(f'Content-Disposition: form-data; name="{field_name}"; filename="{os.path.basename(file_path)}"')
+    #     body.append("Content-Type: application/octet-stream\r\n")
+
+    #     # Append binary content
+    #     with open(file_path, "rb") as binary_file:
+    #         body.append(binary_file.read())
+
+    #     # Close the body with the boundary
+    #     body.append(f"--{boundary}--\r\n")
+
+    #     # Join all parts with CRLF
+    #     body = b"\r\n".join([part if isinstance(part, bytes) else part.encode() for part in body])
+
+    #     # Set headers
+    #     headers = {
+    #         "Content-Type": f"multipart/form-data; boundary={boundary}",
+    #     }
+
+    #     # Send the request
+    #     response = requests.post(url, headers=headers, data=body)
+    #     return response
+
+
     def upload_binary(url, file_path, field_name="file", additional_data=None):
         """
-        Uploads a binary file with a custom Content-Type header order.
-
-        :param url: The endpoint to which the file will be uploaded.
-        :param file_path: The path to the binary file to be uploaded.
-        :param field_name: The field name for the file in the multipart form-data (default is 'file').
-        :param additional_data: A dictionary of additional form data to include in the request.
-        :return: Response object from the HTTP request.
+        TFTP-Version von upload_binary mit derselben Signatur wie die HTTP-Version.
+        
+        :param url: Hier wird die IP-Adresse oder die URL des Zielgeräts erwartet.
+        :param file_path: Pfad zur lokalen .bin Datei.
+        :param field_name: (Wird ignoriert, nur für Kompatibilität vorhanden)
+        :param additional_data: (Wird ignoriert, nur für Kompatibilität vorhanden)
         """
-        # Define the boundary
-        boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
-        additional_data = additional_data or {}
+        import tftpy
+        from urllib.parse import urlparse
 
-        # Construct the body
-        body = []
+        # 1. Host/IP aus dem 'url' Parameter extrahieren
+        # Unterstützt "192.168.200.240", "http://192.168.200.240/..." oder "tftp://192.168.200.240"
+        parsed = urlparse(url)
+        host = parsed.hostname or (parsed.path.split('/')[0] if '/' in parsed.path and '.' in parsed.path.split('/')[0] else url)
+        if not host or host == "": host = url # Fallback falls kein Schema vorhanden ist
+        
+        # Falls in der URL ein Port enthalten ist (z.B. 192.168.1.1:69)
+        port = 69
+        if ':' in host and not host.startswith('['): # Einfaches Handling für Port-Anhänge
+            try:
+                host_parts = host.split(':')
+                host = host_parts[0]
+                port = int(host_parts[1])
+            except: pass
 
-        # Add additional form data
-        for key, value in additional_data.items():
-            body.append(f"--{boundary}")
-            body.append(f'Content-Disposition: form-data; name="{key}"\r\n')
-            body.append(value)
+        # 2. Pfad-Normalisierung (wie in tftp_upload.py gefordert)
+        remote_name = os.path.basename(file_path)
+        remote_name = remote_name.replace("\\", "/")
+        while remote_name.startswith("/"):
+            remote_name = remote_name[1:]
 
-        # Add the binary file
-        body.append(f"--{boundary}")
-        body.append(f'Content-Disposition: form-data; name="{field_name}"; filename="{os.path.basename(file_path)}"')
-        body.append("Content-Type: application/octet-stream\r\n")
+        # 3. TFTP Optionen (Wichtig: Keine Optionen bei Blockgröße 512 für maximale Kompatibilität)
+        opts = {} 
+        # Wenn du eine andere Blockgröße erzwingen müsstest, käme sie hier in 'opts'
+        
+        try:
+            client = tftpy.TftpClient(host, port, options=opts)
+            # Timeout auf 5.0s setzen wie im Beispiel
+            client.upload(remote_name, file_path, timeout=5.0)
+            
+            # Wir geben ein Objekt zurück, das 'status_code' besitzt, falls der Aufrufer diesen prüft
+            class MockResponse:
+                status_code = 200
+                text = "TFTP Upload Successful"
+            return MockResponse()
+            
+        except Exception as e:
+            # Im Fehlerfall geben wir None oder ein Objekt mit Fehler-Code zurück
+            print(f"[!] TFTP Upload failed: {e}")
+            class MockError:
+                status_code = 500
+                text = str(e)
+            return MockError()
 
-        # Append binary content
-        with open(file_path, "rb") as binary_file:
-            body.append(binary_file.read())
 
-        # Close the body with the boundary
-        body.append(f"--{boundary}--\r\n")
 
-        # Join all parts with CRLF
-        body = b"\r\n".join([part if isinstance(part, bytes) else part.encode() for part in body])
-
-        # Set headers
-        headers = {
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-        }
-
-        # Send the request
-        response = requests.post(url, headers=headers, data=body)
-        return response
 
     def upload_if_needed() -> bool:
         if port is None:

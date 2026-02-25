@@ -1150,6 +1150,101 @@ class CompilerModule {
 
 
   // STN: UPDATED STEP 11 (RAW Binary Upload)
+  // async handleUploadProgram({
+  //   projectPath,
+  //   arduinoPlatform,
+  //   compilationPath,
+  //   handleOutputData,
+  //   runtimeIpAddress,
+  // }: {
+  //   projectPath: string
+  //   arduinoPlatform: string
+  //   compilationPath: string
+  //   handleOutputData: HandleOutputDataCallback
+  //   runtimeIpAddress?: string | null
+  //   runtimeJwtToken?: string | null // Wird hier scheinbar nicht benötigt laut C-Code
+  // }) {
+  //   // Pfad zur Binary Datei
+  //   const binaryPath = join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
+
+  //   if (!runtimeIpAddress) {
+  //     handleOutputData('No IP address provided for HTTP upload.', 'error')
+  //     return
+  //   }
+
+  //   handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
+
+  //   let fileBuffer: Buffer
+  //   try {
+  //     fileBuffer = await readFile(binaryPath)
+  //   } catch (error) {
+  //     handleOutputData(`Failed to read binary file: ${(error as Error).message}`, 'error')
+  //     return
+  //   }
+
+  //   handleOutputData(`Starting upload to ${runtimeIpAddress}/upload.cgi (${fileBuffer.length} bytes)...`, 'info')
+
+  //   return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
+      
+  //     const options = {
+  //       hostname: runtimeIpAddress,
+  //       port: 80, 
+  //       path: '/upload.cgi',
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/octet-stream',
+  //         'Content-Length': fileBuffer.length,
+  //         'Connection': 'close'
+  //       },
+  //     }
+
+  //     // STN: DEBUG LOGGING ADDED
+  //     const req = require('node:http').request(options, (res: IncomingMessage) => {
+  //       let responseData = ''
+        
+  //       res.on('data', (chunk) => {
+  //         responseData += chunk
+  //       })
+
+  //       res.on('end', () => {
+  //         // DEBUG: Wir geben ALLES aus, was das Board antwortet
+  //         handleOutputData(`[DEBUG] Server Status Code: ${res.statusCode}`, 'info')
+  //         handleOutputData(`[DEBUG] Server Response Body: "${responseData}"`, 'info')
+
+  //         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+  //           // Prüfung: Hat der Server Erfolg gemeldet?
+  //           if (responseData.includes("uploaddone") || responseData.includes("Success")) {
+  //                handleOutputData('Upload successful! Board is flashing...', 'info')
+  //                resolve({ success: true })
+  //           } else if (responseData.includes("uploaderror")) {
+  //                handleOutputData('Board reported an upload error (Check Magic Number/CRC).', 'error')
+  //                reject(new Error('Board rejected the file.'))
+  //           } else {
+  //                // Hier landen wir aktuell. Jetzt sehen wir durch das Log oben aber WARUM.
+  //                handleOutputData('Warning: Upload finished with HTTP 200, but no success confirmation received.', 'info')
+  //                resolve({ success: true })
+  //           }
+  //         } else {
+  //           const errorMsg = `Upload HTTP error: ${res.statusCode} - Body: ${responseData}`
+  //           handleOutputData(errorMsg, 'error')
+  //           reject(new Error(errorMsg))
+  //         }
+  //       })
+  //     })
+
+  //     req.on('error', (e: Error) => {
+  //       const errorMsg = `Upload connection failed: ${e.message}`
+  //       handleOutputData(errorMsg, 'error')
+  //       reject(new Error(errorMsg))
+  //     })
+
+  //     // Hier schreiben wir die rohen Bytes direkt in den Stream
+  //     req.write(fileBuffer)
+  //     req.end()
+  //   })  
+  // }
+
+  // STN: UPDATED STEP 11 (Native Node.js TFTP Upload)
   async handleUploadProgram({
     projectPath,
     arduinoPlatform,
@@ -1162,87 +1257,70 @@ class CompilerModule {
     compilationPath: string
     handleOutputData: HandleOutputDataCallback
     runtimeIpAddress?: string | null
-    runtimeJwtToken?: string | null // Wird hier scheinbar nicht benötigt laut C-Code
+    runtimeJwtToken?: string | null
   }) {
-    // Pfad zur Binary Datei
-    const binaryPath = join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
+    const nodePath = require('node:path');
+    const fs = require('node:fs');
+    const tftp = require('tftp');
+
+    if (!compilationPath) {
+      handleOutputData('Error: compilationPath is missing.', 'error');
+      return;
+    }
+
+    const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin');
 
     if (!runtimeIpAddress) {
-      handleOutputData('No IP address provided for HTTP upload.', 'error')
-      return
+      handleOutputData('No IP address provided for TFTP upload.', 'error');
+      return;
     }
 
-    handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
+    handleOutputData(`Reading binary from: ${binaryPath}`, 'info');
 
-    let fileBuffer: Buffer
-    try {
-      fileBuffer = await readFile(binaryPath)
-    } catch (error) {
-      handleOutputData(`Failed to read binary file: ${(error as Error).message}`, 'error')
-      return
+    if (!fs.existsSync(binaryPath)) {
+      handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error');
+      return;
     }
 
-    handleOutputData(`Starting upload to ${runtimeIpAddress}/upload.cgi (${fileBuffer.length} bytes)...`, 'info')
+    const remoteName = nodePath.basename(binaryPath);
+    handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info');
 
     return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
-      
-      const options = {
-        hostname: runtimeIpAddress,
-        port: 80, 
-        path: '/upload.cgi',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': fileBuffer.length,
-          'Connection': 'close'
-        },
-      }
+      try {
+        const client = tftp.createClient({
+          host: runtimeIpAddress,
+          port: 69,
+          timeout: 5000
+        });
 
-      // STN: DEBUG LOGGING ADDED
-      const req = require('node:http').request(options, (res: IncomingMessage) => {
-        let responseData = ''
-        
-        res.on('data', (chunk) => {
-          responseData += chunk
-        })
-
-        res.on('end', () => {
-          // DEBUG: Wir geben ALLES aus, was das Board antwortet
-          handleOutputData(`[DEBUG] Server Status Code: ${res.statusCode}`, 'info')
-          handleOutputData(`[DEBUG] Server Response Body: "${responseData}"`, 'info')
-
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            // Prüfung: Hat der Server Erfolg gemeldet?
-            if (responseData.includes("uploaddone") || responseData.includes("Success")) {
-                 handleOutputData('Upload successful! Board is flashing...', 'info')
-                 resolve({ success: true })
-            } else if (responseData.includes("uploaderror")) {
-                 handleOutputData('Board reported an upload error (Check Magic Number/CRC).', 'error')
-                 reject(new Error('Board rejected the file.'))
-            } else {
-                 // Hier landen wir aktuell. Jetzt sehen wir durch das Log oben aber WARUM.
-                 handleOutputData('Warning: Upload finished with HTTP 200, but no success confirmation received.', 'info')
-                 resolve({ success: true })
-            }
+        // HIER IST DIE MAGIE: Wir übergeben den lokalen Pfad, den Remote-Namen 
+        // und eine Callback-Funktion. Die tftp-Lib kümmert sich um den Rest!
+        client.put(binaryPath, remoteName, (err: Error | null) => {
+          if (err) {
+            handleOutputData(`TFTP Transfer failed: ${err.message}`, 'error');
+            reject(err);
           } else {
-            const errorMsg = `Upload HTTP error: ${res.statusCode} - Body: ${responseData}`
-            handleOutputData(errorMsg, 'error')
-            reject(new Error(errorMsg))
+            handleOutputData('Upload successful! Board is flashing...', 'info');
+            resolve({ success: true });
           }
-        })
-      })
+        });
 
-      req.on('error', (e: Error) => {
-        const errorMsg = `Upload connection failed: ${e.message}`
-        handleOutputData(errorMsg, 'error')
-        reject(new Error(errorMsg))
-      })
-
-      // Hier schreiben wir die rohen Bytes direkt in den Stream
-      req.write(fileBuffer)
-      req.end()
-    })  
+      } catch (e) {
+        const errorMsg = `TFTP Setup failed: ${(e as Error).message}`;
+        handleOutputData(errorMsg, 'error');
+        reject(new Error(errorMsg));
+      }
+    });
   }
+
+
+
+
+
+
+
+
+
 
   // !! Deprecated: This method is a outdated implementation and should be removed.
 

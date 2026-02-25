@@ -12,10 +12,10 @@ extern unsigned long long common_ticktime__;
 extern void config_init__(void);
 extern void config_run__(unsigned long tick);
 
-IEC_BOOL IX[IX_COUNT] __attribute__((section(".ModbusDiSection")));
-IEC_BOOL QX[QX_COUNT] __attribute__((section(".ModbusDoSection")));
-IEC_UINT IW[IW_COUNT] __attribute__((section(".ModbusAiSection")));
-IEC_UINT QW[QW_COUNT] __attribute__((section(".ModbusAoSection")));
+IEC_BOOL IX[IX_COUNT];
+IEC_BOOL QX[QX_COUNT];
+IEC_UINT IW[IW_COUNT];
+IEC_UINT QW[QW_COUNT];
 
 unsigned long __tick = 0;
 
@@ -75,6 +75,16 @@ void init_plc(unsigned long long *pcommon_ticktime)
 	memset(QX, 0, QX_COUNT * sizeof(uint8_t));
 	memset(IX, 0, IX_COUNT * sizeof(uint8_t));
 	
+	// 2. NEU: Die Hardware-Pointer zwingend auf NULL (0) setzen!
+	// Da die Arrays in openplc.h bekannt sind, funktioniert sizeof() hier perfekt.
+	memset(bool_input, 0, MAX_DIGITAL_INPUT  * sizeof(void*));
+	memset(bool_output, 0, MAX_DIGITAL_OUTPUT * sizeof(void*));
+	memset(int_input, 0, MAX_ANALOG_INPUT   * sizeof(void*));
+	memset(int_output, 0, MAX_ANALOG_OUTPUT  * sizeof(void*));
+	memset(int_memory, 0, MAX_MEMORY_WORD  * sizeof(void*));
+	memset(dint_memory, 0, MAX_MEMORY_DWORD * sizeof(void*));
+	memset(lint_memory, 0, MAX_MEMORY_LWORD * sizeof(void*));	
+
 	config_init__();
 
 	glueVars();

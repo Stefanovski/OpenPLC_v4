@@ -5,27 +5,27 @@
 #define ct_assert(e) ((void)sizeof(char[1 - 2*!(e)]))
 
 #ifndef MAX_REQUEST
-		#define MAX_REQUEST           256
+	#define MAX_REQUEST           256
 #endif
 
 #ifndef MAX_RESPONSE
-		#define MAX_RESPONSE          256
+	#define MAX_RESPONSE          256
 #endif
 
 #ifndef HOLDING_REG_COUNT
-	#define HOLDING_REG_COUNT       2048
+	#define HOLDING_REG_COUNT       4096
 #endif
 
 #ifndef INPUT_REG_COUNT
-	#define INPUT_REG_COUNT         2048
+	#define INPUT_REG_COUNT         4096
 #endif
 
 #ifndef COIL_COUNT
-	#define COIL_COUNT              1024
+	#define COIL_COUNT              2048
 #endif
 
 #ifndef DISCRETE_COUNT
-	#define DISCRETE_COUNT          1024
+	#define DISCRETE_COUNT          2048
 #endif
 
 #ifdef MODBUS_MASTER
