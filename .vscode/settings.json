@@ -30,5 +30,6 @@
     "tanstack",
     "titlebar",
     "toastify"
-  ]
+  ],
+  "cmake.sourceDirectory": "C:/Temp/GitRepositories/OpenPLC_v4/resources/sources/eurosonic"
 }

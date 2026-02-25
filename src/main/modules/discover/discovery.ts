@@ -1,3 +1,4 @@
+import os from 'os'
 import dgram from 'dgram'
 import { ipcMain } from 'electron'
 
@@ -35,6 +36,20 @@ export class DiscoveryModule {
     ipcMain.handle('device-configure', this.handleConfigure.bind(this))
   }
 
+  // Hilfsfunktion: Berechnet die Broadcast-Adresse aus IP und Subnetzmaske
+  private getBroadcastAddress(ip: string, netmask: string): string {
+    const ipParts = ip.split('.').map(Number);
+    const maskParts = netmask.split('.').map(Number);
+
+    // Broadcast = IP | (~SubnetMask)
+    // Wir machen das Byte für Byte
+    const broadcastParts = ipParts.map((part, i) => {
+      return (part | (~maskParts[i] & 0xFF)) >>> 0;
+    });
+
+    return broadcastParts.join('.');
+  }
+
   /**
    * Sucht nach Geräten im Netzwerk via UDP Broadcast
    */
@@ -54,14 +69,37 @@ export class DiscoveryModule {
       socket.bind(() => {
         socket.setBroadcast(true)
         const message = Buffer.from(DISCOVER_GUID)
+
         try {
-          // Broadcast an alle Netzwerkschnittstellen
-          socket.send(message as any, 0, message.length, DISCOVER_PORT, '255.255.255.255')
+          // 1. Liste alle Netzwerk-Interfaces ab
+          const interfaces = os.networkInterfaces();
+
+          // 2. Iteriere über alle Interfaces
+          Object.keys(interfaces).forEach((ifaceName) => {
+            interfaces[ifaceName]?.forEach((iface) => {
+              // Nur IPv4 und keine Loopback-Adapter (127.0.0.1)
+              if (iface.family === 'IPv4' && !iface.internal) {
+                
+                // Berechne die spezifische Broadcast-Adresse für dieses Subnetz
+                // z.B. IP 192.168.1.50 / Mask 255.255.255.0 -> Broadcast 192.168.1.255
+                const broadcastAddr = this.getBroadcastAddress(iface.address, iface.netmask);
+                
+                console.log(`[Discovery] Sending to ${ifaceName} (${iface.address}) -> ${broadcastAddr}`);
+                
+                socket.send(message as any, 0, message.length, DISCOVER_PORT, broadcastAddr, (err) => {
+                  if (err) console.error(`[Discovery] Error sending to ${broadcastAddr}:`, err);
+                });
+              }
+            });
+          });
+
+          // Optional: Trotzdem noch einmal an global Broadcast senden (für Router, die das mögen)
+          socket.send(message as any, 0, message.length, DISCOVER_PORT, '255.255.255.255');
+
         } catch (e) {
           console.error('[Discovery] Send error:', e)
         }
       })
-
       // Antworten empfangen
       socket.on('message', (msg, rinfo) => {
         try {

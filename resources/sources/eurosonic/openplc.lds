@@ -7,13 +7,13 @@
 /* DEFINITION DER PUFFER-GRÖSSEN (in Bytes)                           */
 /* Diese Werte sind "Variablen", die auch in C lesbar sind.           */
 /* ------------------------------------------------------------------ */
-_len_bool_in   = 0x1000;  /* 1KB für Bool Inputs */
-_len_bool_out  = 0x1000;  /* 1KB für Bool Outputs */
-_len_int_in    = 0x2000;  /* 2KB für Analog Inputs */
-_len_int_out   = 0x2000;  /* 2KB für Analog Outputs */
-_len_mem_int   = 0x4000; /* 4KB für Memory Words */
-_len_mem_dint  = 0x4000; /* 4KB für Memory DWords */
-_len_mem_lint  = 0x4000; /* 4KB für Memory LWords */
+_len_bool_in   = 0x10000;   /* 64KB für Bool Inputs */
+_len_bool_out  = 0x10000;   /* 64KB für Bool Outputs */
+_len_int_in    = 0x10000;   /* 64KB für Analog Inputs */
+_len_int_out   = 0x10000;   /* 64KB für Analog Outputs */
+_len_mem_int   = 0x8000;    /* 32KB für Memory Words */
+_len_mem_dint  = 0x8000;    /* 32KB für Memory DWords */
+_len_mem_lint  = 0x8000;    /* 32KB für Memory LWords */
 
 MEMORY
 {
@@ -190,11 +190,11 @@ SECTIONS
    .modbus_sec (NOLOAD) : {
 		. = ABSOLUTE(0x38000000);
 		*(.ModbusDiSection) 
-		. = ABSOLUTE(0x38000400);
-		*(.ModbusDoSection) 
 		. = ABSOLUTE(0x38000800);
+		*(.ModbusDoSection) 
+		. = ABSOLUTE(0x38001000);
 		*(.ModbusAiSection) 
-		. = ABSOLUTE(0x38001800);
+		. = ABSOLUTE(0x38003000);
 		*(.ModbusAoSection) 
 	} > RAM_D3
 }
