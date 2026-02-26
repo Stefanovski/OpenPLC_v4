@@ -146,7 +146,9 @@ const Library = ({
       {/* Data display */}
       <div id='library-tree-container' className='flex h-full w-full flex-col overflow-auto pr-1'>
         <LibraryRoot>
-          {filteredLibraries.map((library) => (
+          {filteredLibraries
+            .filter((lib) => !['Arduino Function Blocks', 'MQTT', 'P1AM','Jaguar', 'P1AM Modules', 'Sequent Microsystems Modules'].includes(lib.name))
+            .map((library) => (
             <LibraryFolder
               key={library.name}
               label={library.name}

@@ -370,7 +370,7 @@ const Board = memo(function () {
             </>
           ) : (
             <div id='communication-ports-selector' className='flex w-full items-center justify-start gap-1'>
-              <Label
+              {/* <Label
                 id='communication-ports-selector-label'
                 className='whitespace-pre text-xs text-neutral-950 dark:text-white'
               >
@@ -424,8 +424,8 @@ const Board = memo(function () {
                 aria-label='Refresh communication ports'
               >
                 <RefreshIcon size='sm' className={isPressed ? 'spin-refresh' : ''} />
-              </button>
-            </div>
+              </button>*/}
+            </div> 
           )}
           <div id='board-specs' className='flex w-full flex-col items-start justify-start gap-4'>
             <Label id='board-specs-label' className='w-fit text-xs text-neutral-950 dark:text-white'>
@@ -450,7 +450,8 @@ const Board = memo(function () {
         </div>
       </div>
       <hr id='container-split' className='h-[1px] w-full self-stretch bg-brand-light' />
-      <div id='pin-mapping-container' className='flex h-3/5 w-full flex-col gap-4'>
+
+      {/* <div id='pin-mapping-container' className='flex h-3/5 w-full flex-col gap-4'>
         <div id='pin-mapping-table-header-container' className='flex h-fit w-full justify-between'>
           <h2 id='slot-title' className='select-none text-lg font-medium text-neutral-950 dark:text-white'>
             Pin Mapping
@@ -475,7 +476,7 @@ const Board = memo(function () {
           />
         </div>
         <PinMappingTable pins={pins} handleRowClick={handleRowClick} selectedRowId={currentSelectedPinTableRow} />
-      </div>
+      </div> */}
 
       <Modal open={showPythonWarning} onOpenChange={setShowPythonWarning}>
         <ModalContent className='h-fit w-[500px]'>

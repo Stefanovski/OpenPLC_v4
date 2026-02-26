@@ -1244,75 +1244,106 @@ class CompilerModule {
   //   })  
   // }
 
-  // STN: UPDATED STEP 11 (Native Node.js TFTP Upload)
-  async handleUploadProgram({
-    projectPath,
-    arduinoPlatform,
-    compilationPath,
-    handleOutputData,
-    runtimeIpAddress,
-  }: {
-    projectPath: string
-    arduinoPlatform: string
-    compilationPath: string
-    handleOutputData: HandleOutputDataCallback
-    runtimeIpAddress?: string | null
-    runtimeJwtToken?: string | null
-  }) {
-    const nodePath = require('node:path');
-    const fs = require('node:fs');
-    const tftp = require('tftp');
+// STN: UPDATED STEP 11 (Native Node.js TFTP Upload + HTTP Run-Mode Control)
+async handleUploadProgram({
+  projectPath,
+  arduinoPlatform,
+  compilationPath,
+  handleOutputData,
+  runtimeIpAddress,
+}: {
+  projectPath: string
+  arduinoPlatform: string
+  compilationPath: string
+  handleOutputData: HandleOutputDataCallback
+  runtimeIpAddress?: string | null
+  runtimeJwtToken?: string | null
+}) {
+  const nodePath = require('node:path');
+  const fs = require('node:fs');
+  const tftp = require('tftp');
 
-    if (!compilationPath) {
-      handleOutputData('Error: compilationPath is missing.', 'error');
-      return;
-    }
-
-    const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin');
-
-    if (!runtimeIpAddress) {
-      handleOutputData('No IP address provided for TFTP upload.', 'error');
-      return;
-    }
-
-    handleOutputData(`Reading binary from: ${binaryPath}`, 'info');
-
-    if (!fs.existsSync(binaryPath)) {
-      handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error');
-      return;
-    }
-
-    const remoteName = nodePath.basename(binaryPath);
-    handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info');
-
-    return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
-      try {
-        const client = tftp.createClient({
-          host: runtimeIpAddress,
-          port: 69,
-          timeout: 5000
-        });
-
-        // HIER IST DIE MAGIE: Wir übergeben den lokalen Pfad, den Remote-Namen 
-        // und eine Callback-Funktion. Die tftp-Lib kümmert sich um den Rest!
-        client.put(binaryPath, remoteName, (err: Error | null) => {
-          if (err) {
-            handleOutputData(`TFTP Transfer failed: ${err.message}`, 'error');
-            reject(err);
-          } else {
-            handleOutputData('Upload successful! Board is flashing...', 'info');
-            resolve({ success: true });
-          }
-        });
-
-      } catch (e) {
-        const errorMsg = `TFTP Setup failed: ${(e as Error).message}`;
-        handleOutputData(errorMsg, 'error');
-        reject(new Error(errorMsg));
-      }
-    });
+  if (!compilationPath) {
+    handleOutputData('Error: compilationPath is missing.', 'error');
+    return;
   }
 
+  const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin');
+
+  if (!runtimeIpAddress) {
+    handleOutputData('No IP address provided for TFTP upload.', 'error');
+    return;
+  }
+
+  handleOutputData(`Reading binary from: ${binaryPath}`, 'info');
+
+  if (!fs.existsSync(binaryPath)) {
+    handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error');
+    return;
+  }
+
+  const remoteName = nodePath.basename(binaryPath);
+
+  try {
+    // ==========================================
+    // SCHRITT 1: PLC THREAD STOPPEN
+    // ==========================================
+    handleOutputData('Stopping PLC thread on board (MODE_SAFEOP)...', 'info');
+    try {
+      // Nutzt die native fetch-API von Node.js/Electron
+      await fetch(`http://${runtimeIpAddress}/api/plcstop`);
+      
+      // 500ms warten, damit der Task auf dem Board Zeit hat, sich sauber zu beenden
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (fetchErr) {
+      handleOutputData(`Warning: /api/stop failed: ${(fetchErr as Error).message}`, 'error');
+      // Wir werfen hier keinen Fehler, falls das Board frisch gestartet ist 
+      // und der Task ohnehin noch nicht läuft.
+    }
+
+    // ==========================================
+    // SCHRITT 2: TFTP UPLOAD (Dein funktionierender Code)
+    // ==========================================
+    handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info');
+    
+    // Wir wrappen den TFTP-Callback in ein Promise, damit 'await' funktioniert
+    await new Promise<void>((resolve, reject) => {
+      const client = tftp.createClient({
+        host: runtimeIpAddress,
+        port: 69,
+        timeout: 5000
+      });
+
+      client.put(binaryPath, remoteName, (err: Error | null) => {
+        if (err) {
+          reject(err);
+        } else {
+          handleOutputData('TFTP Upload successful!', 'info');
+          resolve();
+        }
+      });
+    });
+
+    // ==========================================
+    // SCHRITT 3: PLC THREAD STARTEN
+    // ==========================================
+    handleOutputData('Starting PLC thread with new program (MODE_OP)...', 'info');
+    try {
+      await fetch(`http://${runtimeIpAddress}/api/plcstart`);
+    } catch (fetchErr) {
+      handleOutputData(`Warning: /api/start failed: ${(fetchErr as Error).message}`, 'error');
+    }
+
+    handleOutputData('Update sequence completed successfully!', 'info');
+    return { success: true };
+
+  } catch (e) {
+    // Fängt Fehler aus dem TFTP-Upload oder generelle Exceptions ab
+    const errorMsg = `Upload sequence failed: ${(e as Error).message}`;
+    handleOutputData(errorMsg, 'error');
+    throw new Error(errorMsg); 
+  }
+}
 
 
 
