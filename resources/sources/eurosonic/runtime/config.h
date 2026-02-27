@@ -13,11 +13,11 @@
 #endif
 
 #ifndef HOLDING_REG_COUNT
-	#define HOLDING_REG_COUNT       4096
+	#define HOLDING_REG_COUNT       2048
 #endif
 
 #ifndef INPUT_REG_COUNT
-	#define INPUT_REG_COUNT         4096
+	#define INPUT_REG_COUNT         2048
 #endif
 
 #ifndef COIL_COUNT

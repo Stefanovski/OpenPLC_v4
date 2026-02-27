@@ -7,13 +7,13 @@
 /* DEFINITION DER PUFFER-GRÖSSEN (in Bytes)                           */
 /* Diese Werte sind "Variablen", die auch in C lesbar sind.           */
 /* ------------------------------------------------------------------ */
-_len_bool_in   = 0x10000;   /* 64KB für Bool Inputs */
-_len_bool_out  = 0x10000;   /* 64KB für Bool Outputs */
-_len_int_in    = 0x10000;   /* 64KB für Analog Inputs */
-_len_int_out   = 0x10000;   /* 64KB für Analog Outputs */
-_len_mem_int   = 0x8000;    /* 32KB für Memory Words */
-_len_mem_dint  = 0x8000;    /* 32KB für Memory DWords */
-_len_mem_lint  = 0x8000;    /* 32KB für Memory LWords */
+_len_bool_in   = 0x2000;   /* 8KB für Bool Inputs */
+_len_bool_out  = 0x2000;   /* 8KB für Bool Outputs */
+_len_int_in    = 0x2000;   /* 8KB für Analog Inputs */
+_len_int_out   = 0x2000;   /* 8KB für Analog Outputs */
+_len_mem_int   = 0x8000;   /* 32KB für Memory Words */
+_len_mem_dint  = 0x8000;   /* 32KB für Memory DWords */
+_len_mem_lint  = 0x8000;   /* 32KB für Memory LWords */
 
 MEMORY
 {
@@ -151,26 +151,6 @@ SECTIONS
         /* Startadresse setzen (einmalig) */
         . = ABSOLUTE(0xD0C00000);
 
-        /* --- 1. BOOL INPUTS --- */
-        _start_bool_in = .;            /* Start merken */
-        KEEP(*(.plc_bool_in))          /* Daten ablegen */
-        . = _start_bool_in + _len_bool_in; /* Pointer hart auf Ende des Blocks schieben */
-
-        /* --- 2. BOOL OUTPUTS --- */
-        _start_bool_out = .;
-        KEEP(*(.plc_bool_out))
-        . = _start_bool_out + _len_bool_out;
-
-        /* --- 3. INT INPUTS --- */
-        _start_int_in = .;
-        KEEP(*(.plc_int_in))
-        . = _start_int_in + _len_int_in;
-
-        /* --- 4. INT OUTPUTS --- */
-        _start_int_out = .;
-        KEEP(*(.plc_int_out))
-        . = _start_int_out + _len_int_out;
-
         /* --- 5. MEMORY WORDS --- */
         _start_mem_int = .;
         KEEP(*(.plc_mem_int))
@@ -187,15 +167,35 @@ SECTIONS
         . = _start_mem_lint + _len_mem_lint;
     } > SDRAM_PLC
 
-   .modbus_sec (NOLOAD) : {
-		. = ABSOLUTE(0x38000000);
-		*(.ModbusDiSection) 
-		. = ABSOLUTE(0x38000800);
-		*(.ModbusDoSection) 
-		. = ABSOLUTE(0x38001000);
-		*(.ModbusAiSection) 
-		. = ABSOLUTE(0x38003000);
-		*(.ModbusAoSection) 
-	} > RAM_D3
+    /*OpenPLC I/O Pointers im extrem schnellen DTCM-RAM*/
+    .dtcm_plc_sections (NOLOAD) :
+    {
+        . = ALIGN(4);
+
+        /* --- Feste Startadresse für das SPS-Projekt im DTCM-RAM --- */
+        . = ABSOLUTE(0x20010000);
+
+        /* --- 1. BOOL INPUTS --- */
+        _start_bool_in = .;
+        KEEP(*(.plc_bool_in))
+        . = _start_bool_in + _len_bool_in;
+
+        /* --- 2. BOOL OUTPUTS --- */
+        _start_bool_out = .;
+        KEEP(*(.plc_bool_out))
+        . = _start_bool_out + _len_bool_out;
+
+        /* --- 3. INT INPUTS --- */
+        _start_int_in = .;
+        KEEP(*(.plc_int_in))
+        . = _start_int_in + _len_int_in;
+
+        /* --- 4. INT OUTPUTS --- */
+        _start_int_out = .;
+        KEEP(*(.plc_int_out))
+        . = _start_int_out + _len_int_out;
+
+        . = ALIGN(4);
+    } > DTCMRAM
 }
 
