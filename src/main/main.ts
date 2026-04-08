@@ -130,6 +130,7 @@ const createMainWindow = async () => {
     resizable: false,
     frame: false,
     show: false,
+    alwaysOnTop: true,
     webPreferences: {
       sandbox: true,
     },
@@ -188,16 +189,19 @@ const createMainWindow = async () => {
     if (!mainWindow) {
       throw new Error('"mainWindow" is not defined')
     }
-    mainWindow.maximize()
+
     if (process.env.START_MINIMIZED) {
       mainWindow.minimize()
     }
+    
     setTimeout(() => {
       if (splash === null) {
         mainWindow?.destroy()
         return
       }
       splash.close()
+
+      mainWindow?.maximize()
       mainWindow?.show()
     }, 3000)
   })
