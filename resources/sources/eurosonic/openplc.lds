@@ -17,7 +17,7 @@ _len_mem_lint  = 0x8000;   /* 32KB für Memory LWords */
 
 MEMORY
 {
-	FLASH (rx)   : ORIGIN = 0x08180000, LENGTH = 512K    /* Memory is divided. Actual start is 0x08000000 and actual length is 2048K */
+	FLASH (rx)   : ORIGIN = 0x081C0000, LENGTH = 256K    /* Memory is divided. Actual start is 0x08000000 and actual length is 2048K */
 	DTCMRAM (xrw)  : ORIGIN = 0x20000000, LENGTH = 128K
 	RAM_D1 (xrw)   : ORIGIN = 0x24060000, LENGTH = 128K    
 	RAM_D2 (xrw)   : ORIGIN = 0x30000000, LENGTH = 288K
@@ -29,22 +29,22 @@ MEMORY
 
 SECTIONS
 {
-    .flash_header_section 0x08180000 : ALIGN(4)
+    .flash_header_section 0x081C0000 : ALIGN(4)
     {
         KEEP(*(.flash_header_section))
     } > FLASH
  
-    .init_plc_section 0x08180400 : ALIGN(4)
+    .init_plc_section 0x081C0400 : ALIGN(4)
     {
         KEEP(*(.init_plc_section))
     } > FLASH
 
-    .run_plc_section 0x08180500 : ALIGN(4)
+    .run_plc_section 0x081C0500 : ALIGN(4)
     {
         KEEP(*(.run_plc_section))
     } > FLASH
 
-    .interface_section 0x08180600 : ALIGN(4)
+    .interface_section 0x081C0600 : ALIGN(4)
     {
         KEEP(*(.interface_section))
     } > FLASH
