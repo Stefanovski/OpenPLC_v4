@@ -1,3 +1,3 @@
-Erstellen inlk. Isntaller:
+Erstellen inlk. Installer:
 
 > npm run package
