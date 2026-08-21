@@ -154,7 +154,7 @@ const PLCVariableSchema = z.object({
   location: z.string(),
   initialValue: z.string().or(z.null()).optional(),
   documentation: z.string(),
-  debug: z.boolean(),
+  debug: z.boolean().optional(),
 })
 
 type PLCVariable = z.infer<typeof PLCVariableSchema>
@@ -276,10 +276,24 @@ const PLCConfigurationSchema = z.object({
 })
 type PLCConfiguration = z.infer<typeof PLCConfigurationSchema>
 
+/**
+ * Debug selections are stored separately because POU variables are serialized
+ * as IEC 61131-3 text and that format does not carry the editor-only flag.
+ */
+const PLCDebugVariablesSchema = z
+  .object({
+    global: z.array(z.string()).optional(),
+    pous: z.record(z.string(), z.array(z.string())).optional(),
+  })
+  .optional()
+
+type PLCDebugVariables = z.infer<typeof PLCDebugVariablesSchema>
+
 const PLCProjectDataSchema = z.object({
   dataTypes: z.array(PLCDataTypeSchema),
   pous: z.array(PLCPouSchema),
   configuration: PLCConfigurationSchema,
+  debugVariables: PLCDebugVariablesSchema,
   deletedPous: z
     .array(
       z.object({
@@ -312,6 +326,7 @@ export {
   PLCArrayDatatypeSchema,
   PLCConfigurationSchema,
   PLCDataTypeSchema,
+  PLCDebugVariablesSchema,
   PLCEnumeratedDatatypeSchema,
   PLCFunctionBlockSchema,
   PLCFunctionSchema,
@@ -334,6 +349,7 @@ export type {
   PLCArrayDatatype,
   PLCConfiguration,
   PLCDataType,
+  PLCDebugVariables,
   PLCEnumeratedDatatype,
   PLCFunction,
   PLCFunctionBlock,
