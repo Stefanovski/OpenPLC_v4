@@ -23,7 +23,7 @@ The following behavior is product-owned and must not be replaced implicitly:
 | Integration branch | `20260821_MergeToOfficial` |
 | Local safety tag | `eurosonic-gen2-2.11.0-working` |
 | Package version at the working baseline | `4.0.7-beta` |
-| Current Eurosonic editor version | `4.1.1` |
+| Current Eurosonic editor version | `4.1.2` |
 | Last official tag before the fork point | `v4.0.6-beta` |
 | Actual upstream fork point | `8516dad1e62fb2b8c31287a941f0ef355fc35141` |
 | First later official release | `v4.1.0` |
@@ -204,6 +204,60 @@ Validation after the complete tranche:
 Version `4.1.1` denotes selective synchronization through official OpenPLC tag `v4.1.1` for the supported
 Eurosonic/STM32H7 workflow. It does not claim inclusion of excluded Arduino, simulator, official runtime, or
 Configuration features.
+
+## Completed `v4.1.2` tranche
+
+Starting with this tranche, changes that apply cleanly and do not compromise protected Eurosonic behavior are
+accepted even when they are not directly required by the generator workflow.
+
+| PR / commit | Change | Local commit |
+| --- | --- | --- |
+| `#524`, `eba27017b` | Preserve the configured runtime IP and restore it into the debugger connection state | selective `6467f1c86`, `a83b36a7d` |
+| `#533` | Fix Enter-key handling in Ladder autocomplete | `b2c1c98e0` |
+| `#548` | Keep the selected Force Value target and correctly send non-BOOL buffers | merged with the Eurosonic Force implementation in `4410b6c44` |
+| `#558` | Report failed variable creation from graphical autocomplete | `69b11d718` |
+| `#559` | Preserve variable debug selection while switching declaration views | `690f141c9` |
+| `#573` | Propagate renames to all FBD variable node variants | `e98f5eabb` |
+| `#574` | Preserve global-variable code between tabs and improve task-name allocation | `8731c7a8f` |
+| `#575` | Select FBD continuation variables by name rather than a shared node ID | `52985751e` |
+| `#569` | Correct debugger batch-progress accounting | selective `695812cb7` |
+| `#551` | Allow descriptive custom pin names | `6e31a1f47` |
+| `#549` | Generate valid Python shared-memory structs with no inputs or outputs | `9c709d665` |
+| `#555`, `305512001`, `#571` | Harden Monaco/Python-LSP initialization, diagnostics, and view-state handling | `ba62a65ee`, `20017b7aa`, `528e55de9` |
+
+The following blocks were tested as full cherry-picks and then aborted without leaving changes:
+
+- `#530` S7Comm server configuration conflicts with the Eurosonic project schema, the intentionally absent official
+  server editor, `workspace-screen.tsx`, and the protected compiler module.
+- The final OPC-UA feature merge `3aea6cc3c` conflicts with the compiler, project/editor/tab schemas, debugger tree,
+  and several official server/remote-device components that are intentionally absent in the Eurosonic branch.
+- `#568` log filtering conflicts with the existing workspace and PLC-log state models. It is UI convenience rather
+  than generator/debugger core behavior, so the state models were not manually replaced.
+
+Other excluded changes:
+
+- `#543` and `#570` require the official remote-device architecture that is absent from the Eurosonic editor.
+- `#554` replaces runtime and timing-stat polling across the protected Configuration/workspace path.
+- The ESP32 USB portion of `#569` modifies `hals.json`; only its independent debugger correction was selected.
+- GitHub Claude/release workflows were not copied because they could activate unwanted automation on the Eurosonic
+  fork and are not application functionality.
+
+There are no MatIEC or xml2st binary changes between official tags `v4.1.1` and `v4.1.2`.
+
+Validation after the complete tranche:
+
+- `npm run build:main`: passed
+- `npm run build:renderer`: passed
+- ESLint on all 21 changed TypeScript/TSX files: passed
+- located-variable and variables-panel Force Value regression tests: 4 passed
+- isolated `v4TestProject` XML-to-ST-to-C-to-debug-to-GlueVars pipeline: passed
+- `%IW1000` and `%QW1200` remain in `LOCATED_VARIABLES.h` and map to `int_input_ptr[1000]` and
+  `int_output_ptr[1200]`
+- no upload or hardware access was performed
+
+Version `4.1.2` denotes selective synchronization through official OpenPLC tag `v4.1.2` for the supported
+Eurosonic/STM32H7 workflow. Features rejected because they require replacement of the Eurosonic architecture are
+listed above rather than being implied by the version number.
 
 ## Acceptance gate for every backport
 
