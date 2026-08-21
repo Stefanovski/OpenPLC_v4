@@ -22,12 +22,13 @@ The following behavior is product-owned and must not be replaced implicitly:
 | Working branch retained by the user | `development` |
 | Integration branch | `20260821_MergeToOfficial` |
 | Local safety tag | `eurosonic-gen2-2.11.0-working` |
-| Package version in the fork | `4.0.7-beta` |
+| Package version at the working baseline | `4.0.7-beta` |
+| Current Eurosonic editor version | `4.1.0` |
 | Last official tag before the fork point | `v4.0.6-beta` |
 | Actual upstream fork point | `8516dad1e62fb2b8c31287a941f0ef355fc35141` |
 | First later official release | `v4.1.0` |
 
-The package version is not the historical fork point. `v4.0.6-beta` is an ancestor, but the fork includes another 639 official commits and diverges at `8516dad1e` from 7 November 2025.
+The baseline package version is not the historical fork point. `v4.0.6-beta` is an ancestor, but the fork includes another 639 official commits and diverges at `8516dad1e` from 7 November 2025.
 
 ## Branch rules
 
@@ -144,8 +145,10 @@ established Eurosonic form. The regression test explicitly covers `%QW1200`. A f
 `main.ld` restores all nine variables, and the regenerated XML-to-ST-to-C-to-debug-to-GlueVars pipeline completes
 successfully with `%IW1000` and `%QW1200` present.
 
-The application version intentionally remains `4.0.7-beta`: this branch is the Eurosonic fork with selected
-backports through official `v4.1.0`, not the complete official `v4.1.0` release.
+The application version advances tag by tag after all changes relevant to the supported Eurosonic/STM32H7
+workflow have been selected and accepted. Version `4.1.0` therefore denotes synchronization through official
+OpenPLC tag `v4.1.0` for that product scope. The About dialog identifies the build as `Eurosonic Edition` and
+shows the `Eurosonic_Gen2 2.11.0` generator target.
 
 ## Acceptance gate for every backport
 
