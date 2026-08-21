@@ -75,25 +75,62 @@ Counts are relative to the previous listed release, except `v4.1.0`, which start
 
 The 4.1 releases are reviewed first. The architectural jump between 4.1.4 and 4.2.0 is evaluated feature by feature and is never merged as a whole.
 
-## Initial `v4.1.0` candidates
+## Completed `v4.1.0` tranche
 
-These are review states, not approvals to integrate.
+The following upstream pull requests were applied as separate commits:
 
-| PR | Change | Initial assessment |
+| PR | Change | Local commit |
 | --- | --- | --- |
-| `#453` | Vertically align parallel ladder elements | Low-to-medium risk; ladder/XML tests required |
-| `#454` | Improve ladder collision detection | Low risk; UI-only candidate |
-| `#455` | Fix variable auto-name incrementing | Very small, isolated candidate |
-| `#456` | Fix nested interactive elements | Small UI/accessibility candidate |
-| `#457` | Avoid unsafe highlighted-text rendering | Security-relevant; review with high priority |
-| `#460` | Poll nested debugger variables | Useful but debugger-sensitive; manual test required |
-| `#462` | Debug function-block instances | Large debugger change; manual port only if needed |
-| `#469` | Fix global-variable editing and XML generation | Compiler/XML-sensitive; manual review |
-| `#475` | Warn about unsaved changes from Recent menu | Small, isolated candidate |
-| `#481` | Prevent hidden device form fields | One-line UI candidate; verify old configuration layout |
-| `#482` | Fix bottom-panel tab selection | Small candidate but touches shared workspace state |
+| `#453` | Vertically align parallel ladder elements | `049cdd596` |
+| `#454` | Improve ladder collision detection | `4fb148c01` |
+| `#455` | Fix variable auto-name incrementing | `ddd8c9e77` |
+| `#456` | Fix nested interactive elements | `a786d8a86` |
+| `#457` | Avoid unsafe highlighted-text rendering | `45804135c` |
+| `#460` | Poll nested debugger variables | `a9cc2fd8c` |
+| `#462` | Debug function-block instances | `0d4ed3d5a` |
+| `#469` | Fix global-variable editing and XML generation | `85135b2b5` |
+| `#475` | Warn about unsaved changes from Recent menu | `b2b016095` |
+| `#480` | Preserve the POU file extension when renaming | `c37e81ad4` |
+| `#482` | Fix bottom-panel tab selection | `cdb418195` |
 
-Changes for official runtime upload, runtime version detection, runtime logs, status polling, and the official remote-I/O workflow are not assumed to be relevant to the Eurosonic product.
+The following changes were deliberately not applied:
+
+- `#476`: C++/Python search support is outside the Eurosonic PLC workflow.
+- `#474`, `#477`, `#483`, `#490`: official runtime status, version, logs, and polling are not used by the
+  Eurosonic target.
+- `#481`: touches Configuration, which remains a protected Eurosonic-owned area.
+- `#489`, `#491`: official Modbus server and remote-I/O workflows are unrelated to the existing Eurosonic
+  process image.
+- Arduino, local simulator, licensing-only, and unrelated platform changes were excluded.
+
+### MatIEC and xml2st
+
+The real Eurosonic compilation path uses the platform compiler in `resources/bin`, not the legacy copy under
+`resources/sources/eurosonic/bin`. The following compiler changes were applied:
+
+| Upstream commit | Change | Local commit |
+| --- | --- | --- |
+| `1bbc76b5f` | MatIEC library array wrapper | `9649ad232` |
+| `717d2d3d2` | MatIEC compiler binaries | `2cabd7587` |
+| `7d3d815c7` | Final MatIEC compiler binaries for `v4.1.0` | `6326f4c38` |
+| `85ded4189` | Windows `xml2st` binaries | `0165f20d6` |
+
+The broad upstream xml2st delete/re-add sequence was not used because it conflicts with Eurosonic-modified
+macOS `glueVars` templates. Only the tested Windows binaries were selected; the Eurosonic macOS files and the
+Linux xml2st binary remain unchanged.
+
+The old and new Windows pipelines were run on the same reference `plc.xml`. Both completed XML-to-ST, MatIEC,
+debug generation, and GlueVars generation successfully. `POUS.c`, `POUS.h`, `LOCATED_VARIABLES.h`,
+`VARIABLES.csv`, `Config0.c`, `Config0.h`, `Res0.c`, and `glueVars.c` were byte-identical. The only difference was
+the semantically irrelevant order of generated debugger `switch` cases. Located variables still include
+`%IW1000` and `%QW1200`.
+
+Validation after the complete tranche:
+
+- `npm run build:main`: passed
+- `npm run build:renderer`: passed
+- variables-panel Force Value regression test: passed
+- no upload or hardware access was performed
 
 ## Acceptance gate for every backport
 
