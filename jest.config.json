@@ -8,7 +8,8 @@
     "\\.(css|less|sass|scss)$": "identity-obj-proxy",
     "^@root/(.*)$": "<rootDir>/src/$1",
     "^@process:renderer/(.*)$": "<rootDir>/src/renderer/$1",
-    "^@process:main/(.*)$": "<rootDir>/src/main/$1"
+    "^@process:main/(.*)$": "<rootDir>/src/main/$1",
+    "^@utils/(.*)$": "<rootDir>/src/utils/$1"
   },
   "testEnvironment": "node",
   "testEnvironmentOptions": {

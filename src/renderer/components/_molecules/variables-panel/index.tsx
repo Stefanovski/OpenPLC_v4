@@ -193,9 +193,16 @@ const VariablesPanel = ({
       e.preventDefault()
       e.stopPropagation()
       setForceValueModalOpen(true)
-      handleCloseContextMenu()
+      setContextMenuState((currentState) =>
+        currentState
+          ? {
+              ...currentState,
+              isOpen: false,
+            }
+          : null,
+      )
     },
-    [handleCloseContextMenu],
+    [],
   )
 
   const handleForceValueConfirm = useCallback(() => {
@@ -259,17 +266,20 @@ const VariablesPanel = ({
 
     setForceValueModalOpen(false)
     setForceValue('')
+    setContextMenuState(null)
   }, [contextMenuState, forceValue, onForceVariable])
 
   const handleForceValueCancel = useCallback(() => {
     setForceValueModalOpen(false)
     setForceValue('')
+    setContextMenuState(null)
   }, [])
 
   const handleForceValueModalChange = useCallback((open: boolean) => {
     setForceValueModalOpen(open)
     if (!open) {
       setForceValue('')
+      setContextMenuState(null)
     }
   }, [])
 

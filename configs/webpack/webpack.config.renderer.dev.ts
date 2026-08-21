@@ -230,11 +230,8 @@ const configuration: ICustomConfiguration = {
         .on('error', (spawnError) => console.error(spawnError))
 
       console.log('Starting Main Process...')
-      let args = ['run', 'start:main']
-      if (process.env.MAIN_ARGS) {
-        args = args.concat(['--', ...process.env.MAIN_ARGS.matchAll(/"[^"]+"|[^\s"]+/g)].flat())
-      }
-      spawn('npm', args, {
+      const mainScript = process.env.MAIN_ARGS ? 'start:main:debug' : 'start:main'
+      spawn('npm', ['run', mainScript], {
         shell: true,
         stdio: 'inherit',
       })
