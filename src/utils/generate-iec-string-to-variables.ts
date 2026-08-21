@@ -11,9 +11,15 @@ const varBlockToClass: Record<string, PLCVariable['class']> = {
   VAR_GLOBAL: 'global',
 }
 
-const lineRegex =
+const standardLineRegex =
   // eslint-disable-next-line no-useless-escape
-  /^\s*(?<name>\w+)\s*:\s*(?<type>[\w\s\[\]\.]+?)(?:\s+AT\s+(?<location>[\w\d\._%]+))?\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
+  /^\s*(?<name>\w+)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*:\s*(?<type>[\w\s\[\]\.]+?)\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
+
+// OpenPLC v4.1.0 briefly serialized AT after the type. Accept that form when
+// reading so projects saved with either editor version remain loadable.
+const typeFirstLineRegex =
+  // eslint-disable-next-line no-useless-escape
+  /^\s*(?<name>\w+)\s*:\s*(?<type>[\w\s\[\]\.]+?)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
 
 const guessErrorReason = (line: string): string => {
   if (!line.includes(';')) return 'missing semicolon (;) at the end of the declaration'
@@ -58,7 +64,7 @@ export const parseIecStringToVariables = (
 
     if (!currentClass) return
 
-    const match = line.match(lineRegex)
+    const match = line.match(standardLineRegex) ?? line.match(typeFirstLineRegex)
     if (!match || !match.groups) {
       throw new Error(`Syntax error on line ${lineNumber}: "${line}". Possible cause: ${guessErrorReason(line)}.`)
     }

@@ -132,6 +132,21 @@ Validation after the complete tranche:
 - variables-panel Force Value regression test: passed
 - no upload or hardware access was performed
 
+### v4.1.0 variable-declaration compatibility correction
+
+The first end-to-end project compilation exposed an incompatibility in PR `#469`: its parser expected located
+variables as `name : type AT %address`, while existing Eurosonic project files use the established IEC form
+`name AT %address : type`. The POU was consequently loaded without variables and XML generation emitted an empty
+`<interface/>`.
+
+The parser now accepts both forms to avoid data loss across editor versions. Serialization remains in the
+established Eurosonic form. The regression test explicitly covers `%QW1200`. A fresh load of the reference
+`main.ld` restores all nine variables, and the regenerated XML-to-ST-to-C-to-debug-to-GlueVars pipeline completes
+successfully with `%IW1000` and `%QW1200` present.
+
+The application version intentionally remains `4.0.7-beta`: this branch is the Eurosonic fork with selected
+backports through official `v4.1.0`, not the complete official `v4.1.0` release.
+
 ## Acceptance gate for every backport
 
 1. Editor production build succeeds.
