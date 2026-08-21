@@ -491,9 +491,13 @@ const VariableElement = (block: VariableProps) => {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Tab') e.preventDefault()
             if (e.key === 'Enter' && openAutocomplete) {
               e.preventDefault()
-              // Call triggerSubmit synchronously before blur to avoid race condition
-              // where autocomplete unmounts before processing the Enter key
-              autocompleteRef.current?.triggerSubmit?.()
+              if (getLiteralType(variableValue)) {
+                // Literals belong to the block input and must not be submitted as new variables.
+                handleSubmitVariableValueOnTextareaBlur()
+              } else {
+                // Submit autocomplete synchronously before blur so it can process the Enter key.
+                autocompleteRef.current?.triggerSubmit?.()
+              }
               inputVariableRef.current?.blur({ submit: false })
               return
             }

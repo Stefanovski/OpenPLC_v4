@@ -3,6 +3,7 @@ import { useOpenPLCStore } from '@root/renderer/store'
 import { extractNumberAtEnd } from '@root/renderer/store/slices/project/validation/variables'
 import { PLCVariable } from '@root/types/PLC'
 import { cn } from '@root/utils'
+import { getLiteralType } from '@root/utils/keywords'
 import { Node } from '@xyflow/react'
 import { ComponentPropsWithRef, forwardRef } from 'react'
 
@@ -236,6 +237,7 @@ const VariablesBlockAutoComplete = forwardRef<HTMLDivElement, VariablesBlockAuto
         keyPressed={keyPressed}
         searchValue={valueToSearch}
         variables={filteredVariables as PLCVariable[]}
+        canCreateNewVariable={getLiteralType(valueToSearch) === undefined}
         submit={submit}
       />
     )
