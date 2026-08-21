@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "workingCommit": "68a5bf70cd20b5373f749864be827f50c686c138",
+  "board": "Eurosonic_Gen2",
+  "programMd5": "33c8cfac4a96a482c20981623182bb2e",
+  "generatedSourcesNewerThanBinary": true,
+  "locatedVariables": [
+    { "name": "blink_led", "location": "%QX120.0", "type": "BOOL" },
+    { "name": "ainch0", "location": "%IW1000", "type": "INT" },
+    { "name": "testout", "location": "%QX120.7", "type": "BOOL" },
+    { "name": "aoutch0", "location": "%QW1200", "type": "INT" },
+    { "name": "blink_led2", "location": "%QX120.4", "type": "BOOL" }
+  ],
+  "binaryHeader": {
+    "marker": "0xCAFEBABE",
+    "info": "OPEN_PLC.bin",
+    "state": 1,
+    "payloadLength": 6688,
+    "runtimeMd5": "fea5d9232e3a76fe6d7ef744a73f759c",
+    "runtimeMd5MatchesPayload": true,
+    "programMd5": "33c8cfac4a96a482c20981623182bb2e",
+    "programMd5MatchesDefines": true,
+    "sha256": "2bdc8f1facac214346d0b207708260010c9deb3b6cb936bb58d83c5b3928a522"
+  },
+  "sourceHashes": {
+    "project.json": "295681a30e6098fc88d54eaef452fe9daef9c5ed74b17ee73e478970c66d6581",
+    "devices/configuration.json": "92086b621993a91c6365e69f489eca028958fe33c613e83061275a774b630853",
+    "pous/programs/main.ld": "3ef77e25472723c14020e8bfa6d7d4852d71915f69fa6cd3c5291df01430d47b",
+    "build/Eurosonic_Gen2/src/program.st": "ed51f93878b80f8da258c2e0af2c50a36800e026c08735a88fc0d0b886a4be83",
+    "build/Eurosonic_Gen2/src/defines.h": "e344c27b5b1a5f0b36c16bbaa7ced5de21730d3e29fcc0bdb08a5b494344daec",
+    "build/Eurosonic_Gen2/src/Config0.c": "cd0929e3a3d168115249b5f61f9142475edbc73c2c1c54f840c7958eb1b5965f",
+    "build/Eurosonic_Gen2/src/debug.c": "27de5c81fe5414abaf382332b91abf0865c1fe186339d8b2b596bf2d1d375a38",
+    "build/Eurosonic_Gen2/src/glueVars.c": "203e149bc049c463816281994ebd95efe63673ee650933de7c7c6ba0c7068730",
+    "build/Eurosonic_Gen2/src/LOCATED_VARIABLES.h": "4a3f0133030ca330e546c07f52e8690af0be6d0af07bf160e3b08734ec7ca936"
+  }
+}
