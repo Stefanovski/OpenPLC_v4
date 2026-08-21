@@ -23,7 +23,7 @@ The following behavior is product-owned and must not be replaced implicitly:
 | Integration branch | `20260821_MergeToOfficial` |
 | Local safety tag | `eurosonic-gen2-2.11.0-working` |
 | Package version at the working baseline | `4.0.7-beta` |
-| Current Eurosonic editor version | `4.1.0` |
+| Current Eurosonic editor version | `4.1.1` |
 | Last official tag before the fork point | `v4.0.6-beta` |
 | Actual upstream fork point | `8516dad1e62fb2b8c31287a941f0ef355fc35141` |
 | First later official release | `v4.1.0` |
@@ -149,6 +149,61 @@ The application version advances tag by tag after all changes relevant to the su
 workflow have been selected and accepted. Version `4.1.0` therefore denotes synchronization through official
 OpenPLC tag `v4.1.0` for that product scope. The About dialog identifies the build as `Eurosonic Edition` and
 shows the `Eurosonic_Gen2 2.11.0` generator target.
+
+## Completed `v4.1.1` tranche
+
+The following editor and debugger changes were selected from the official tag:
+
+| PR / commit | Change | Local commit |
+| --- | --- | --- |
+| `#503` | Accept both located-variable declaration orders | already covered by `11a54a342` |
+| `#508` | Allow text selection in console and PLC logs | `41ffeeb29` |
+| `#505` | Keep ladder autocomplete synchronized during keyboard selection | `0b64dff1c` |
+| `#512` | Keep array modal popovers visible and editable | `ca1f0956c` |
+| `#514` | Preserve custom-type spelling when creating variables | `8e11b1e32` |
+| `#515` | Close autocomplete on Enter without creating an unintended variable | `0a711477c` |
+| `#516` | Correct custom-type variable creation in FBD | `cef94ab89` |
+| `#520` | Support all variable types in the global-variable debugger | `62f0e2cf2`, `feba8e88c` |
+| `#523` | Persist selected global and POU debug variables | selective implementation `0da25a723` |
+
+PR `#523` was applied selectively. Debug selections are stored in `project.json` and restored when the project is
+opened, but the official relocation of `compileOnly` into the device configuration was deliberately omitted. The
+existing Eurosonic Configuration data model and save format therefore remain unchanged.
+
+The following changes were deliberately not applied:
+
+- `#492`: its effective changes target the official server/remote-device explorer branches, which are not part of
+  the preserved Eurosonic Configuration UI.
+- `#499`: changes only the serial Modbus RTU debugger transport; the Eurosonic generator uses Modbus TCP.
+- `#506`: replaces and extends the official Modbus-slave Configuration data model.
+- `#518` and `3ee70d82b`: Arduino Mega and ESP8266 changes.
+- `#523` compile-only persistence: omitted as described above.
+- Official runtime, simulator, and unrelated device changes remain excluded.
+
+### v4.1.1 MatIEC and xml2st
+
+The final official `v4.1.1` MatIEC binaries were selected for Windows, Linux, and macOS. The tested Windows
+`xml2st` binaries were also updated. Eurosonic-modified macOS xml2st templates and the Linux xml2st binary remain
+unchanged.
+
+The current and `v4.1.1` Windows pipelines were run in isolation with the same `v4TestProject` XML. Both completed
+XML-to-ST, MatIEC, debug generation, and GlueVars generation. `POUS.c`, `POUS.h`, `LOCATED_VARIABLES.h`,
+`VARIABLES.csv`, `Config0.c`, `Config0.h`, and `Res0.c` are byte-identical. The new xml2st output retains
+`%IW1000` and `%QW1200`; `glueVars.c` still maps them to `int_input_ptr[1000]` and `int_output_ptr[1200]` and adds
+only guarded `OPENPLC_V4` compatibility support.
+
+Validation after the complete tranche:
+
+- `npm run build:main`: passed
+- `npm run build:renderer`: passed
+- ESLint on all 23 changed TypeScript/TSX files: passed
+- located-variable and variables-panel Force Value regression tests: 4 passed
+- isolated `v4TestProject` XML-to-ST-to-C-to-debug-to-GlueVars pipeline: passed
+- no upload or hardware access was performed
+
+Version `4.1.1` denotes selective synchronization through official OpenPLC tag `v4.1.1` for the supported
+Eurosonic/STM32H7 workflow. It does not claim inclusion of excluded Arduino, simulator, official runtime, or
+Configuration features.
 
 ## Acceptance gate for every backport
 
