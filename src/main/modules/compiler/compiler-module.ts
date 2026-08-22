@@ -1,6 +1,6 @@
 import { exec, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
 //import https from 'node:https'
 import os from 'node:os'
@@ -22,6 +22,14 @@ import type { MessagePortMain } from 'electron/main'
 import JSZip from 'jszip'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
+import {
+  enrichIecDebugMetadata,
+  IEC_DEBUG_METADATA_FILE,
+  IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
+  parseIecDebugVariables,
+  prepareProjectForIecDebug,
+  renderIecDebugVariableAdapter,
+} from './iec-debug'
 import { FormatMacAddress } from './utils/formatters'
 
 interface MethodsResult<T> {
@@ -406,9 +414,7 @@ class CompilerModule {
     } else {
       // INFO: If the board target is OpenPLC, we copy the MatIEC library files and C/C++ block templates.
       const cBlocksHeaderPath = join(this.sourceDirectoryPath, 'eurosonic', 'c_blocks.h')
-      filesToCopy = [
-        cp(cBlocksHeaderPath, join(sourceTargetFolderPath, 'c_blocks.h')),
-      ]
+      filesToCopy = [cp(cBlocksHeaderPath, join(sourceTargetFolderPath, 'c_blocks.h'))]
     }
 
     try {
@@ -477,6 +483,7 @@ class CompilerModule {
   async handleTranspileSTtoC(
     generatedSTFilePath: string,
     handleOutputData: (chunk: Buffer | string, logLevel?: 'info' | 'error') => void,
+    generateIecDebug = false,
   ) {
     // As the iec2c binary generates the C files in the same directory as the binary location,
     // we need to set the target directory for the output files accordingly with the generated ST file path.
@@ -489,7 +496,10 @@ class CompilerModule {
     }
 
     return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
-      const executeCommand = spawn(binaryPath, ['-f', '-p', '-i', '-l', generatedSTFilePath], {
+      const argumentsToIec2c = ['-f', '-p', '-i', '-l']
+      if (generateIecDebug) argumentsToIec2c.push('-g')
+      argumentsToIec2c.push(generatedSTFilePath)
+      const executeCommand = spawn(binaryPath, argumentsToIec2c, {
         cwd: targetDirectoryForOutput,
       })
 
@@ -547,6 +557,42 @@ class CompilerModule {
         }
       })
     })
+  }
+
+  async prepareIecDebugSources(sourceTargetFolderPath: string, projectData: ProjectState['data']) {
+    const prepared = prepareProjectForIecDebug(projectData)
+    await Promise.all(
+      prepared.sourceFiles.map((sourceFile) =>
+        writeFile(join(sourceTargetFolderPath, sourceFile.fileName), sourceFile.content, 'utf8'),
+      ),
+    )
+    return prepared.projectData
+  }
+
+  async removeIecDebugMetadata(sourceTargetFolderPath: string) {
+    // Build folders are intentionally reused.  A metadata file left behind by a
+    // previous debugger build must never enable the instrumented runtime in a
+    // subsequent production build.
+    await rm(join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE), { force: true })
+  }
+
+  async finalizeIecDebugArtifacts(sourceTargetFolderPath: string) {
+    const metadataPath = join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE)
+    const variablesPath = join(sourceTargetFolderPath, 'VARIABLES.csv')
+    const debugSourcePath = join(sourceTargetFolderPath, 'debug.c')
+    const [metadataJson, variablesCsv, debugSource] = await Promise.all([
+      readFile(metadataPath, 'utf8'),
+      readFile(variablesPath, 'utf8'),
+      readFile(debugSourcePath, 'utf8'),
+    ])
+    if (debugSource.includes(IEC_DEBUG_VARIABLE_ADAPTER_MARKER)) {
+      throw new Error('IEC debug variable adapter was generated more than once')
+    }
+    const variables = parseIecDebugVariables(variablesCsv)
+    await Promise.all([
+      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables), 'utf8'),
+      writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables)}`, 'utf8'),
+    ])
   }
 
   async handleGenerateGlueVars(
@@ -952,7 +998,7 @@ class CompilerModule {
     const definitionsFilePath = join(buildTargetDirectoryPath, 'src', 'defines.h')
 
     // === Defines.h content generation ===
-    
+
     // Wir schreiben nur noch den MD5 Hash
     DEFINES_CONTENT += '//Program MD5\n'
     DEFINES_CONTENT += `#define PROGRAM_MD5 "${buildMD5Hash}"`
@@ -962,13 +1008,12 @@ class CompilerModule {
     try {
       // Datei schreiben
       await writeFile(definitionsFilePath, DEFINES_CONTENT, { encoding: 'utf8' })
-      
+
       _handleOutputData(`Defines file created at: ${definitionsFilePath}`, 'info')
     } catch (_error) {
       _handleOutputData('Error writing defines.h file', 'error')
     }
   }
-
 
   async handlePatchGeneratedFiles(compilationPath: string, handleOutputData: HandleOutputDataCallback) {
     const pousCFilePath = join(compilationPath, 'src', 'POUS.c')
@@ -1174,7 +1219,6 @@ class CompilerModule {
   //   })
   // }
 
-
   // STN: UPDATED STEP 11 (RAW Binary Upload)
   // async handleUploadProgram({
   //   projectPath,
@@ -1211,10 +1255,10 @@ class CompilerModule {
   //   handleOutputData(`Starting upload to ${runtimeIpAddress}/upload.cgi (${fileBuffer.length} bytes)...`, 'info')
 
   //   return new Promise<MethodsResult<string | Buffer>>((resolve, reject) => {
-      
+
   //     const options = {
   //       hostname: runtimeIpAddress,
-  //       port: 80, 
+  //       port: 80,
   //       path: '/upload.cgi',
   //       method: 'POST',
   //       headers: {
@@ -1227,7 +1271,7 @@ class CompilerModule {
   //     // STN: DEBUG LOGGING ADDED
   //     const req = require('node:http').request(options, (res: IncomingMessage) => {
   //       let responseData = ''
-        
+
   //       res.on('data', (chunk) => {
   //         responseData += chunk
   //       })
@@ -1267,117 +1311,108 @@ class CompilerModule {
   //     // Hier schreiben wir die rohen Bytes direkt in den Stream
   //     req.write(fileBuffer)
   //     req.end()
-  //   })  
+  //   })
   // }
 
-// STN: UPDATED STEP 11 (Native Node.js TFTP Upload + HTTP Run-Mode Control)
-async handleUploadProgram({
-  projectPath,
-  arduinoPlatform,
-  compilationPath,
-  handleOutputData,
-  runtimeIpAddress,
-}: {
-  projectPath: string
-  arduinoPlatform: string
-  compilationPath: string
-  handleOutputData: HandleOutputDataCallback
-  runtimeIpAddress?: string | null
-  runtimeJwtToken?: string | null
-}) {
-  const nodePath = require('node:path');
-  const fs = require('node:fs');
-  const tftp = require('tftp');
+  // STN: UPDATED STEP 11 (Native Node.js TFTP Upload + HTTP Run-Mode Control)
+  async handleUploadProgram({
+    projectPath,
+    arduinoPlatform,
+    compilationPath,
+    handleOutputData,
+    runtimeIpAddress,
+  }: {
+    projectPath: string
+    arduinoPlatform: string
+    compilationPath: string
+    handleOutputData: HandleOutputDataCallback
+    runtimeIpAddress?: string | null
+    runtimeJwtToken?: string | null
+  }) {
+    const nodePath = require('node:path')
+    const fs = require('node:fs')
+    const tftp = require('tftp')
 
-  if (!compilationPath) {
-    handleOutputData('Error: compilationPath is missing.', 'error');
-    return;
-  }
-
-  const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin');
-
-  if (!runtimeIpAddress) {
-    handleOutputData('No IP address provided for TFTP upload.', 'error');
-    return;
-  }
-
-  handleOutputData(`Reading binary from: ${binaryPath}`, 'info');
-
-  if (!fs.existsSync(binaryPath)) {
-    handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error');
-    return;
-  }
-
-  const remoteName = nodePath.basename(binaryPath);
-
-  try {
-    // ==========================================
-    // SCHRITT 1: PLC THREAD STOPPEN
-    // ==========================================
-    handleOutputData('Stopping PLC thread on board (MODE_SAFEOP)...', 'info');
-    try {
-      // Nutzt die native fetch-API von Node.js/Electron
-      await fetch(`http://${runtimeIpAddress}/api/plcstop`);
-      
-      // 500ms warten, damit der Task auf dem Board Zeit hat, sich sauber zu beenden
-      await new Promise(resolve => setTimeout(resolve, 500));
-    } catch (fetchErr) {
-      handleOutputData(`Warning: /api/stop failed: ${(fetchErr as Error).message}`, 'error');
-      // Wir werfen hier keinen Fehler, falls das Board frisch gestartet ist 
-      // und der Task ohnehin noch nicht läuft.
+    if (!compilationPath) {
+      handleOutputData('Error: compilationPath is missing.', 'error')
+      return
     }
 
-    // ==========================================
-    // SCHRITT 2: TFTP UPLOAD (Dein funktionierender Code)
-    // ==========================================
-    handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info');
-    
-    // Wir wrappen den TFTP-Callback in ein Promise, damit 'await' funktioniert
-    await new Promise<void>((resolve, reject) => {
-      const client = tftp.createClient({
-        host: runtimeIpAddress,
-        port: 69,
-        timeout: 5000
-      });
+    const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
 
-      client.put(binaryPath, remoteName, (err: Error | null) => {
-        if (err) {
-          reject(err);
-        } else {
-          handleOutputData('TFTP Upload successful!', 'info');
-          resolve();
-        }
-      });
-    });
-
-    // ==========================================
-    // SCHRITT 3: PLC THREAD STARTEN
-    // ==========================================
-    handleOutputData('Starting PLC thread with new program (MODE_OP)...', 'info');
-    try {
-      await fetch(`http://${runtimeIpAddress}/api/plcstart`);
-    } catch (fetchErr) {
-      handleOutputData(`Warning: /api/start failed: ${(fetchErr as Error).message}`, 'error');
+    if (!runtimeIpAddress) {
+      handleOutputData('No IP address provided for TFTP upload.', 'error')
+      return
     }
 
-    handleOutputData('Update sequence completed successfully!', 'info');
-    return { success: true };
+    handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
 
-  } catch (e) {
-    // Fängt Fehler aus dem TFTP-Upload oder generelle Exceptions ab
-    const errorMsg = `Upload sequence failed: ${(e as Error).message}`;
-    handleOutputData(errorMsg, 'error');
-    throw new Error(errorMsg); 
+    if (!fs.existsSync(binaryPath)) {
+      handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error')
+      return
+    }
+
+    const remoteName = nodePath.basename(binaryPath)
+
+    try {
+      // ==========================================
+      // SCHRITT 1: PLC THREAD STOPPEN
+      // ==========================================
+      handleOutputData('Stopping PLC thread on board (MODE_SAFEOP)...', 'info')
+      try {
+        // Nutzt die native fetch-API von Node.js/Electron
+        await fetch(`http://${runtimeIpAddress}/api/plcstop`)
+
+        // 500ms warten, damit der Task auf dem Board Zeit hat, sich sauber zu beenden
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      } catch (fetchErr) {
+        handleOutputData(`Warning: /api/stop failed: ${(fetchErr as Error).message}`, 'error')
+        // Wir werfen hier keinen Fehler, falls das Board frisch gestartet ist
+        // und der Task ohnehin noch nicht läuft.
+      }
+
+      // ==========================================
+      // SCHRITT 2: TFTP UPLOAD (Dein funktionierender Code)
+      // ==========================================
+      handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info')
+
+      // Wir wrappen den TFTP-Callback in ein Promise, damit 'await' funktioniert
+      await new Promise<void>((resolve, reject) => {
+        const client = tftp.createClient({
+          host: runtimeIpAddress,
+          port: 69,
+          timeout: 5000,
+        })
+
+        client.put(binaryPath, remoteName, (err: Error | null) => {
+          if (err) {
+            reject(err)
+          } else {
+            handleOutputData('TFTP Upload successful!', 'info')
+            resolve()
+          }
+        })
+      })
+
+      // ==========================================
+      // SCHRITT 3: PLC THREAD STARTEN
+      // ==========================================
+      handleOutputData('Starting PLC thread with new program (MODE_OP)...', 'info')
+      try {
+        await fetch(`http://${runtimeIpAddress}/api/plcstart`)
+      } catch (fetchErr) {
+        handleOutputData(`Warning: /api/start failed: ${(fetchErr as Error).message}`, 'error')
+      }
+
+      handleOutputData('Update sequence completed successfully!', 'info')
+      return { success: true }
+    } catch (e) {
+      // Fängt Fehler aus dem TFTP-Upload oder generelle Exceptions ab
+      const errorMsg = `Upload sequence failed: ${(e as Error).message}`
+      handleOutputData(errorMsg, 'error')
+      throw new Error(errorMsg)
+    }
   }
-}
-
-
-
-
-
-
-
-
 
   // !! Deprecated: This method is a outdated implementation and should be removed.
 
@@ -2208,7 +2243,7 @@ async handleUploadProgram({
 
   //STN: Eurosonic Version
   async compileProgram(
-    args: Array<string | null | ProjectState['data']>,
+    args: Array<string | boolean | null | ProjectState['data']>,
     _mainProcessPort: MessagePortMain,
     mainProcessBridge: {
       makeRuntimeApiRequest: <T = void>(
@@ -2226,15 +2261,18 @@ async handleUploadProgram({
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Starting compilation process...' })
     // INFO: We assume the first argument is the project path,
     // INFO: the second argument is the board target, and the third argument is the project data.
-    const [projectPath, boardTarget, boardCore, compileOnly, projectData, runtimeIpAddress, runtimeJwtToken] = args as [
-      string,
-      string,
-      string | null,
-      boolean,
-      ProjectState['data'],
-      string | null,
-      string | null,
-    ]
+    const [
+      projectPath,
+      boardTarget,
+      boardCore,
+      compileOnly,
+      projectData,
+      runtimeIpAddress,
+      runtimeJwtToken,
+      requestedIecDebug = false,
+    ] = args as [string, string, string | null, boolean, ProjectState['data'], string | null, string | null, boolean?]
+
+    const generateIecDebug = requestedIecDebug && boardTarget === 'Eurosonic_Gen2'
 
     const boardRuntime = await this.#getBoardRuntime(boardTarget) // Get the board runtime from the hals.json file
 
@@ -2267,9 +2305,7 @@ async handleUploadProgram({
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
 
     try {
-      const [iec2cCheckResult] = await Promise.all([
-        this.checkIec2cAvailability(),
-      ])
+      const [iec2cCheckResult] = await Promise.all([this.checkIec2cAvailability()])
       _mainProcessPort.postMessage({
         message: `IEC2C available at version ${iec2cCheckResult.data}`,
       })
@@ -2286,6 +2322,7 @@ async handleUploadProgram({
     // Step 1: Create basic directories
     try {
       await this.createBasicDirectories(normalizedProjectPath, boardTarget)
+      await this.removeIecDebugMetadata(sourceTargetFolderPath)
       _mainProcessPort.postMessage({
         logLevel: 'info',
         message: 'Directories for compilation source files created.',
@@ -2304,7 +2341,10 @@ async handleUploadProgram({
     // Step 2: Generate XML from JSON
     let generateXMLResult: MethodsResult<{ xmlPath: string; xmlContent: string }> = { success: false }
     try {
-      generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectData)
+      const projectDataForBuild = generateIecDebug
+        ? await this.prepareIecDebugSources(sourceTargetFolderPath, projectData)
+        : projectData
+      generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectDataForBuild)
       _mainProcessPort.postMessage({
         logLevel: 'info',
         message: `Generated XML from JSON at: ${generateXMLResult.data?.xmlPath as string}`,
@@ -2353,9 +2393,13 @@ async handleUploadProgram({
     // Step 4: Generate C code from ST
     const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st') // Assuming the ST file is named 'program.st'
     try {
-      await this.handleTranspileSTtoC(generatedSTFilePath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
+      await this.handleTranspileSTtoC(
+        generatedSTFilePath,
+        (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        },
+        generateIecDebug,
+      )
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
@@ -2375,6 +2419,7 @@ async handleUploadProgram({
       await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
         _mainProcessPort.postMessage({ logLevel, message: data })
       })
+      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
@@ -2498,7 +2543,7 @@ async handleUploadProgram({
         message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
       })
     }
-  
+
     // STN: STEP11
     // Step 11: Execute build.bat and stream output
     try {
@@ -2510,9 +2555,9 @@ async handleUploadProgram({
 
       await new Promise<void>((resolve, reject) => {
         // cwd: compilationPath setzt das Arbeitsverzeichnis direkt in den Build-Ordner
-        const buildProcess = spawn(batFilePath, [], { 
-          cwd: compilationPath, 
-          shell: true 
+        const buildProcess = spawn(batFilePath, [], {
+          cwd: compilationPath,
+          shell: true,
         })
 
         // Standard-Output an Frontend senden
@@ -2547,7 +2592,6 @@ async handleUploadProgram({
           reject(err)
         })
       })
-
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
@@ -2562,42 +2606,42 @@ async handleUploadProgram({
     }
 
     // STN: PRE-STEP 12 - Statische IP aus configuration.json ermitteln
-    let targetUploadIp = runtimeIpAddress; // Fallback auf die übergebene IP
+    let targetUploadIp = runtimeIpAddress // Fallback auf die übergebene IP
 
     try {
       // 1. Pfad zur Konfigurationsdatei bauen
-      const devicesDirectoryPath = join(normalizedProjectPath, 'devices');
-      const devicesConfigurationFilePath = join(devicesDirectoryPath, 'configuration.json');
-      
+      const devicesDirectoryPath = join(normalizedProjectPath, 'devices')
+      const devicesConfigurationFilePath = join(devicesDirectoryPath, 'configuration.json')
+
       // 2. Datei lesen (wir nutzen den generischen Typ DeviceConfiguration, der oben importiert ist)
       // Falls der Typ DeviceConfiguration Probleme macht, kannst du <any> verwenden.
-      const deviceConfig = await CompilerModule.readJSONFile<DeviceConfiguration>(devicesConfigurationFilePath);
-      
+      const deviceConfig = await CompilerModule.readJSONFile<DeviceConfiguration>(devicesConfigurationFilePath)
+
       // 3. Statische IP extrahieren
       // Pfad gemäß deiner JSON: communicationConfiguration -> modbusTCP -> tcpStaticHostConfiguration -> ipAddress
-      const staticIpConfig = deviceConfig.communicationConfiguration?.modbusTCP?.tcpStaticHostConfiguration?.ipAddress;
+      const staticIpConfig = deviceConfig.communicationConfiguration?.modbusTCP?.tcpStaticHostConfiguration?.ipAddress
 
       // 4. Validieren und zuweisen
       if (staticIpConfig && staticIpConfig.trim() !== '' && staticIpConfig !== '0.0.0.0') {
-        targetUploadIp = staticIpConfig;
-        
-        _mainProcessPort.postMessage({ 
-          logLevel: 'info', 
-          message: `Using configured Static IP from configuration.json: ${targetUploadIp}` 
-        });
+        targetUploadIp = staticIpConfig
+
+        _mainProcessPort.postMessage({
+          logLevel: 'info',
+          message: `Using configured Static IP from configuration.json: ${targetUploadIp}`,
+        })
       } else {
-        _mainProcessPort.postMessage({ 
-            logLevel: 'info', 
-            message: `No static IP configured in configuration.json. Using runtime IP: ${targetUploadIp}` 
-        });
+        _mainProcessPort.postMessage({
+          logLevel: 'info',
+          message: `No static IP configured in configuration.json. Using runtime IP: ${targetUploadIp}`,
+        })
       }
     } catch (configError) {
       // Falls die Datei nicht gelesen werden kann (z.B. Rechteprobleme), machen wir einfach mit der Standard-IP weiter
       _mainProcessPort.postMessage({
         logLevel: 'warning',
-        message: `Could not read configuration.json, continuing with runtime IP.`
-      });
-    }    
+        message: `Could not read configuration.json, continuing with runtime IP.`,
+      })
+    }
 
     // STN: STEP12
     // Step 12: Upload program to board if necessary
@@ -2623,6 +2667,8 @@ async handleUploadProgram({
       }
     }
 
+    _mainProcessPort.postMessage({ compilationSucceeded: true })
+
     // -- Final message --
     _mainProcessPort.postMessage({
       message:
@@ -2636,14 +2682,20 @@ async handleUploadProgram({
   }
 
   async compileForDebugger(
-    args: Array<string | null | ProjectState['data']>,
+    args: Array<string | boolean | null | ProjectState['data']>,
     _mainProcessPort: MessagePortMain,
   ): Promise<void> {
     _mainProcessPort.start()
 
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Starting debug compilation process...' })
 
-    const [projectPath, boardTarget, projectData] = args as [string, string, ProjectState['data']]
+    const [projectPath, boardTarget, projectData, requestedIecDebug = false] = args as [
+      string,
+      string,
+      ProjectState['data'],
+      boolean?,
+    ]
+    const generateIecDebug = requestedIecDebug && boardTarget === 'Eurosonic_Gen2'
 
     const boardRuntime = await this.#getBoardRuntime(boardTarget)
     const normalizedProjectPath = projectPath.replace('project.json', '')
@@ -2673,6 +2725,7 @@ async handleUploadProgram({
 
     try {
       await this.createBasicDirectories(normalizedProjectPath, boardTarget)
+      await this.removeIecDebugMetadata(sourceTargetFolderPath)
       _mainProcessPort.postMessage({
         logLevel: 'info',
         message: 'Directories for compilation source files created.',
@@ -2687,7 +2740,10 @@ async handleUploadProgram({
     }
 
     try {
-      const generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectData)
+      const projectDataForDebug = generateIecDebug
+        ? await this.prepareIecDebugSources(sourceTargetFolderPath, projectData)
+        : projectData
+      const generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectDataForDebug)
       _mainProcessPort.postMessage({
         logLevel: 'info',
         message: `Generated XML from JSON at: ${generateXMLResult.data?.xmlPath as string}`,
@@ -2729,9 +2785,13 @@ async handleUploadProgram({
 
     const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st')
     try {
-      await this.handleTranspileSTtoC(generatedSTFilePath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
+      await this.handleTranspileSTtoC(
+        generatedSTFilePath,
+        (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        },
+        generateIecDebug,
+      )
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
@@ -2749,6 +2809,7 @@ async handleUploadProgram({
       await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
         _mainProcessPort.postMessage({ logLevel, message: data })
       })
+      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',
@@ -2819,6 +2880,7 @@ async handleUploadProgram({
       logLevel: 'info',
       message: 'Debug compilation completed successfully.',
     })
+    _mainProcessPort.postMessage({ compilationSucceeded: true })
     _mainProcessPort.postMessage({
       message:
         '-------------------------------------------------------------------------------------------------------------\n',

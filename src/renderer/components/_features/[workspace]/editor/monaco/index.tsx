@@ -120,6 +120,9 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       debugVariableValues,
       fbSelectedInstance,
       fbDebugInstances,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugBreakpoints,
     },
     project: {
       data: {
@@ -137,6 +140,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     editorActions: { saveEditorViewState },
     projectActions: { updatePou, createVariable },
     sharedWorkspaceActions: { handleFileAndWorkspaceSavedState },
+    workspaceActions: { setIecDebugBreakpoints },
     snapshotActions: { addSnapshot },
   } = useOpenPLCStore()
 
@@ -159,6 +163,23 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   const [templatesInjected, setTemplatesInjected] = useState<Set<string>>(new Set())
 
   const pou = pous.find((pou) => pou.data.name === name)
+
+  const iecDebugPou = useMemo(() => {
+    if (!iecDebugMetadata || language !== 'st') return undefined
+    return iecDebugMetadata.pous.find((entry) => entry.name.toUpperCase() === name.toUpperCase())
+  }, [iecDebugMetadata, language, name])
+  const iecDebugStatements = useMemo(
+    () =>
+      iecDebugPou ? iecDebugMetadata?.statements.filter((statement) => statement.pou_id === iecDebugPou.id) ?? [] : [],
+    [iecDebugMetadata?.statements, iecDebugPou],
+  )
+
+  const currentIecDebugStatement = useMemo(
+    () => iecDebugStatements.find((statement) => statement.id === iecDebugStatus?.currentStatementId),
+    [iecDebugStatements, iecDebugStatus?.currentStatementId],
+  )
+  const isIecDebugSession = isDebuggerVisible && language === 'st' && iecDebugMetadata !== null
+  const isIecDebugHalted = iecDebugStatus?.state === 1
 
   useEffect(() => {
     if (editorRef.current && searchQuery) {
@@ -220,6 +241,87 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly: isDebuggerVisible })
   }, [isDebuggerVisible])
+
+  useEffect(() => {
+    const editorInstance = editorRef.current
+    if (!editorInstance || !isIecDebugSession) return
+
+    const breakpointLines = new Set(
+      iecDebugStatements
+        .filter((statement) => iecDebugBreakpoints.has(statement.id))
+        .map((statement) => statement.line),
+    )
+    const decorations: monaco.editor.IModelDeltaDecoration[] = Array.from(breakpointLines).map((line) => ({
+      range: new monaco.Range(line, 1, line, 1),
+      options: { glyphMarginClassName: 'iec-debug-breakpoint-glyph', glyphMarginHoverMessage: { value: 'Breakpoint' } },
+    }))
+
+    if (currentIecDebugStatement && isIecDebugHalted) {
+      decorations.push({
+        range: new monaco.Range(currentIecDebugStatement.line, 1, currentIecDebugStatement.line, 1),
+        options: {
+          isWholeLine: true,
+          className: 'iec-debug-current-line',
+          glyphMarginClassName: 'iec-debug-current-glyph',
+          glyphMarginHoverMessage: { value: 'Current IEC statement' },
+        },
+      })
+      editorInstance.revealLineInCenterIfOutsideViewport(currentIecDebugStatement.line)
+    }
+
+    const collection = editorInstance.createDecorationsCollection(decorations)
+    return () => collection.clear()
+  }, [
+    currentIecDebugStatement,
+    editorMounted,
+    iecDebugBreakpoints,
+    iecDebugStatements,
+    isIecDebugHalted,
+    isIecDebugSession,
+  ])
+
+  useEffect(() => {
+    const editorInstance = editorRef.current
+    if (!editorInstance || !isIecDebugSession) return
+
+    const disposable = editorInstance.onMouseDown((event) => {
+      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position) return
+      const statements = iecDebugStatements
+        .filter((statement) => statement.line === event.target.position?.lineNumber)
+        .sort((left, right) => left.column - right.column)
+      const statement = statements[0]
+      if (!statement) return
+
+      const enabled = !iecDebugBreakpoints.has(statement.id)
+      void window.bridge.debuggerSetIecBreakpoint(statement.id, enabled).then((result) => {
+        if (!result.success) {
+          toast({
+            title: 'Breakpoint Error',
+            description: result.error ?? 'Breakpoint could not be changed.',
+            variant: 'fail',
+          })
+          return
+        }
+        const next = new Set(iecDebugBreakpoints)
+        if (enabled) next.add(statement.id)
+        else next.delete(statement.id)
+        setIecDebugBreakpoints(next)
+      })
+    })
+    return () => disposable.dispose()
+  }, [editorMounted, iecDebugBreakpoints, iecDebugStatements, isIecDebugSession, setIecDebugBreakpoints])
+
+  const resumeIecDebug = (mode: 'continue' | 'step-into') => {
+    void window.bridge.debuggerResumeIec(mode).then((result) => {
+      if (!result.success) {
+        toast({
+          title: 'IEC Debugger Error',
+          description: result.error ?? 'The PLC could not be resumed.',
+          variant: 'fail',
+        })
+      }
+    })
+  }
 
   const fbInstanceContext = useMemo(() => {
     if (!pou || pou.type !== 'function-block') return null
@@ -840,6 +942,7 @@ void loop()
       enabled: true,
     },
     readOnly: isDebuggerVisible,
+    glyphMargin: isIecDebugSession,
   }
 
   const handleDrop = (ev: React.DragEvent<HTMLDivElement>) => {
@@ -981,9 +1084,39 @@ void loop()
   return (
     <>
       <div id='editor drop handler' className='oplc-monaco-wrapper nokey h-full w-full' onDrop={handleDrop}>
+        {isIecDebugSession && (
+          <div className='flex h-9 items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-3 text-xs dark:border-neutral-800 dark:bg-neutral-950'>
+            <span
+              className={isIecDebugHalted ? 'font-semibold text-amber-600' : 'text-neutral-600 dark:text-neutral-300'}
+            >
+              {isIecDebugHalted
+                ? `HALTED · ${iecDebugPou?.name ?? name} · ${currentIecDebugStatement?.file ?? '?'} ${currentIecDebugStatement?.line ?? '?'}:${currentIecDebugStatement?.column ?? '?'} · ID ${currentIecDebugStatement?.id ?? '?'}`
+                : 'IEC debugger RUN'}
+            </span>
+            <button
+              type='button'
+              disabled={!isIecDebugHalted}
+              className='rounded bg-brand px-2 py-1 text-white disabled:cursor-not-allowed disabled:opacity-40'
+              onClick={() => resumeIecDebug('continue')}
+            >
+              Continue
+            </button>
+            <button
+              type='button'
+              disabled={!isIecDebugHalted}
+              className='rounded border border-neutral-300 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700'
+              onClick={() => resumeIecDebug('step-into')}
+            >
+              Step
+            </button>
+            <span className='ml-auto text-neutral-500'>
+              {iecDebugBreakpoints.size}/{iecDebugStatus?.breakpointCapacity ?? 64} breakpoints
+            </span>
+          </div>
+        )}
         <PrimitiveEditor
           options={monacoEditorUserOptions}
-          height='100%'
+          height={isIecDebugSession ? 'calc(100% - 36px)' : '100%'}
           width='100%'
           path={path}
           language={language}

@@ -42,6 +42,13 @@ type VariablePanelProps = {
     valueBuffer?: Uint8Array,
     lookupKey?: string,
   ) => Promise<void>
+  onWriteVariable?: (
+    compositeKey: string,
+    variableType: string,
+    value?: boolean,
+    valueBuffer?: Uint8Array,
+    lookupKey?: string,
+  ) => Promise<void>
 }
 
 const VariablesPanel = ({
@@ -56,6 +63,7 @@ const VariablesPanel = ({
   onToggleExpandedNode,
   isDebuggerVisible,
   onForceVariable,
+  onWriteVariable,
 }: VariablePanelProps) => {
   const expandedNodes = debugExpandedNodes ?? new Map<string, boolean>()
   const [contextMenuState, setContextMenuState] = useState<{
@@ -67,6 +75,7 @@ const VariablesPanel = ({
   } | null>(null)
   const [forceValueModalOpen, setForceValueModalOpen] = useState<boolean>(false)
   const [forceValue, setForceValue] = useState<string>('')
+  const [valueOperation, setValueOperation] = useState<'force' | 'write'>('force')
   const [pendingForceContext, setPendingForceContext] = useState<{
     compositeKey: string
     lookupKey: string
@@ -201,6 +210,7 @@ const VariablesPanel = ({
       e.stopPropagation()
       // Save context before popover closes (popover auto-closes on click)
       if (contextMenuState) {
+        setValueOperation('force')
         setPendingForceContext({
           compositeKey: contextMenuState.compositeKey,
           lookupKey: contextMenuState.lookupKey,
@@ -220,6 +230,49 @@ const VariablesPanel = ({
     [contextMenuState],
   )
 
+  const handleWriteValue = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (contextMenuState) {
+        setValueOperation('write')
+        setPendingForceContext({
+          compositeKey: contextMenuState.compositeKey,
+          lookupKey: contextMenuState.lookupKey,
+          variableType: contextMenuState.variableType,
+        })
+      }
+      setForceValueModalOpen(true)
+      setContextMenuState((currentState) =>
+        currentState
+          ? {
+              ...currentState,
+              isOpen: false,
+            }
+          : null,
+      )
+    },
+    [contextMenuState],
+  )
+
+  const handleWriteBoolean = useCallback(
+    (e: React.MouseEvent, value: boolean) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (contextMenuState && onWriteVariable) {
+        void onWriteVariable(
+          contextMenuState.compositeKey,
+          'BOOL',
+          value,
+          new Uint8Array([value ? 1 : 0]),
+          contextMenuState.lookupKey,
+        )
+      }
+      handleCloseContextMenu()
+    },
+    [contextMenuState, onWriteVariable, handleCloseContextMenu],
+  )
+
   const handleForceValueConfirm = useCallback(() => {
     const closeModal = () => {
       setForceValueModalOpen(false)
@@ -228,7 +281,8 @@ const VariablesPanel = ({
       setContextMenuState(null)
     }
 
-    if (!pendingForceContext || !forceValue.trim() || !onForceVariable) {
+    const modifyVariable = valueOperation === 'force' ? onForceVariable : onWriteVariable
+    if (!pendingForceContext || !forceValue.trim() || !modifyVariable) {
       closeModal()
       return
     }
@@ -273,7 +327,7 @@ const VariablesPanel = ({
       forcedValueForState = parsedIntValue >= BigInt(0)
     }
 
-    void onForceVariable(
+    void modifyVariable(
       pendingForceContext.compositeKey,
       variableType,
       forcedValueForState,
@@ -282,7 +336,7 @@ const VariablesPanel = ({
     )
 
     closeModal()
-  }, [pendingForceContext, forceValue, onForceVariable])
+  }, [pendingForceContext, forceValue, onForceVariable, onWriteVariable, valueOperation])
 
   const handleForceValueCancel = useCallback(() => {
     setForceValueModalOpen(false)
@@ -433,8 +487,24 @@ const VariablesPanel = ({
             >
               {isBoolVariable ? (
                 <>
+                  {onWriteVariable && (
+                    <>
+                      <div
+                        className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                        onClick={(e) => void handleWriteBoolean(e, true)}
+                      >
+                        <p>Write True</p>
+                      </div>
+                      <div
+                        className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                        onClick={(e) => void handleWriteBoolean(e, false)}
+                      >
+                        <p>Write False</p>
+                      </div>
+                    </>
+                  )}
                   <div
-                    className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                    className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                     onClick={(e) => void handleForceTrue(e)}
                   >
                     <p>Force True</p>
@@ -456,8 +526,16 @@ const VariablesPanel = ({
                 </>
               ) : (
                 <>
+                  {onWriteVariable && (
+                    <div
+                      className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                      onClick={(e) => void handleWriteValue(e)}
+                    >
+                      <p>Write Value</p>
+                    </div>
+                  )}
                   <div
-                    className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                    className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                     onClick={(e) => void handleForceValue(e)}
                   >
                     <p>Force Value</p>
@@ -479,10 +557,12 @@ const VariablesPanel = ({
 
       <Modal open={forceValueModalOpen} onOpenChange={handleForceValueModalChange}>
         <ModalContent className='flex h-fit min-h-0 w-[400px] select-none flex-col items-center justify-start rounded-lg p-6'>
-          <ModalTitle className='mb-4 text-lg font-semibold'>Force Value</ModalTitle>
+          <ModalTitle className='mb-4 text-lg font-semibold'>
+            {valueOperation === 'force' ? 'Force Value' : 'Write Value'}
+          </ModalTitle>
 
           <p className='mb-6 text-center text-sm text-neutral-600 dark:text-neutral-400'>
-            Enter the value to force for {pendingForceContext?.compositeKey.split(':')[1] || 'this variable'}
+            Enter the value to {valueOperation} for {pendingForceContext?.compositeKey.split(':')[1] || 'this variable'}
           </p>
 
           <div className='flex w-full flex-col gap-4'>

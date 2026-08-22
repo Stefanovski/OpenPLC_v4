@@ -49,6 +49,12 @@ SECTIONS
         KEEP(*(.interface_section))
     } > FLASH
 
+    /* Optional versioned IEC debug ABI. Absent from production builds. */
+    .debug_interface_section 0x081C0700 : ALIGN(4)
+    {
+        KEEP(*(.debug_interface_section))
+    } > FLASH
+
 	.text :
 	{
 		. = ALIGN(4);
@@ -198,4 +204,3 @@ SECTIONS
         . = ALIGN(4);
     } > DTCMRAM
 }
-

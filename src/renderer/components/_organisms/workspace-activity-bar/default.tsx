@@ -668,9 +668,21 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         })
       }
 
+      const useIecStatementDebugger = boardTarget === 'Eurosonic_Gen2' && connectionType === 'tcp' && !isRuntimeTarget
+
+      let debugCompilationSucceeded = false
       window.bridge.runDebugCompilation(
-        [projectPath, boardTarget, processedProjectData as ProjectDataWithCpp],
-        (data: { logLevel?: 'info' | 'error' | 'warning'; message: string | Buffer; closePort?: boolean }) => {
+        [projectPath, boardTarget, processedProjectData as ProjectDataWithCpp, useIecStatementDebugger],
+        (data: {
+          logLevel?: 'info' | 'error' | 'warning'
+          message?: string | Buffer
+          closePort?: boolean
+          compilationSucceeded?: boolean
+        }) => {
+          if (data.compilationSucceeded) {
+            debugCompilationSucceeded = true
+          }
+
           if (typeof data.message === 'string') {
             data.message
               .trim()
@@ -694,6 +706,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           }
 
           if (data.closePort) {
+            if (!debugCompilationSucceeded) {
+              setIsDebuggerProcessing(false)
+              return
+            }
             void handleMd5Verification(
               projectPath,
               boardTarget,
@@ -707,6 +723,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               },
               targetIpAddress,
               isRuntimeTarget,
+              processedProjectData as ProjectDataWithCpp,
             )
           }
         },
@@ -734,8 +751,89 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     },
     targetIpAddress: string | undefined,
     isRuntimeTarget: boolean,
+    debugProjectData: ProjectDataWithCpp,
   ) => {
     const { consoleActions, workspaceActions, runtimeConnection, deviceActions } = useOpenPLCStore.getState()
+    const useIecStatementDebugger = boardTarget === 'Eurosonic_Gen2' && connectionType === 'tcp' && !isRuntimeTarget
+
+    const uploadDebugProgramAndRetry = async () => {
+      const boardCore = availableBoards.get(boardTarget)?.core || null
+      const runtimeJwtToken = useOpenPLCStore.getState().runtimeConnection.jwtToken || null
+
+      consoleActions.addLog({
+        id: crypto.randomUUID(),
+        level: 'info',
+        message: useIecStatementDebugger
+          ? 'Building and uploading IEC-instrumented program...'
+          : 'Building and uploading program...',
+      })
+      await window.bridge.debuggerDisconnect()
+      let debugBuildAndUploadSucceeded = false
+      window.bridge.runCompileProgram(
+        [
+          projectPath,
+          boardTarget,
+          boardCore,
+          false,
+          debugProjectData,
+          targetIpAddress ?? '',
+          runtimeJwtToken,
+          useIecStatementDebugger,
+        ],
+        (data: {
+          logLevel?: 'info' | 'error' | 'warning'
+          message?: string | Buffer
+          plcStatus?: string
+          closePort?: boolean
+          compilationSucceeded?: boolean
+        }) => {
+          if (data.compilationSucceeded) {
+            debugBuildAndUploadSucceeded = true
+          }
+
+          if (typeof data.message === 'string') {
+            data.message
+              .trim()
+              .split('\n')
+              .forEach((line) => {
+                consoleActions.addLog({ id: crypto.randomUUID(), level: data.logLevel ?? 'info', message: line })
+              })
+          } else if (data.message) {
+            BufferToStringArray(data.message).forEach((message) => {
+              consoleActions.addLog({ id: crypto.randomUUID(), level: data.logLevel ?? 'info', message })
+            })
+          }
+
+          if (data.closePort) {
+            if (!debugBuildAndUploadSucceeded) {
+              consoleActions.addLog({
+                id: crypto.randomUUID(),
+                level: 'error',
+                message: 'Debugger startup stopped because the instrumented build or upload failed.',
+              })
+              setIsDebuggerProcessing(false)
+              return
+            }
+            consoleActions.addLog({
+              id: crypto.randomUUID(),
+              level: 'info',
+              message: 'Debug firmware upload completed. Restarting debugger verification...',
+            })
+            setTimeout(() => {
+              void handleMd5Verification(
+                projectPath,
+                boardTarget,
+                connectionType,
+                connectionParams,
+                targetIpAddress,
+                isRuntimeTarget,
+                debugProjectData,
+              )
+            }, 2000)
+          }
+        },
+      )
+    }
 
     try {
       if (isRuntimeTarget) {
@@ -1045,6 +1143,27 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             return
           }
 
+          if (useIecStatementDebugger) {
+            const capabilities = await window.bridge.debuggerGetIecCapabilities()
+            if (!capabilities.success) {
+              await window.bridge.debuggerDisconnect()
+              const response = await showDebuggerMessage(
+                'question',
+                'IEC Debug Firmware Required',
+                'The target program matches, but it does not contain the IEC statement debugger. Build and upload an instrumented debug program now?',
+                ['Yes', 'No'],
+              )
+              if (response === 0) void uploadDebugProgramAndRetry()
+              else setIsDebuggerProcessing(false)
+              return
+            }
+            consoleActions.addLog({
+              id: crypto.randomUUID(),
+              level: 'info',
+              message: `IEC statement debugger available (capabilities 0x${capabilities.data?.toString(16) ?? '0'}).`,
+            })
+          }
+
           workspaceActions.setDebugVariableIndexes(indexMap)
           if (!isRuntimeTarget) {
             workspaceActions.setDebuggerTargetIp(targetIpAddress ?? null)
@@ -1078,65 +1197,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         )
 
         if (response === 0) {
-          consoleActions.addLog({
-            id: crypto.randomUUID(),
-            level: 'info',
-            message: 'Uploading program to target...',
-          })
-
-          const boardCore = availableBoards.get(boardTarget)?.core || null
-          const runtimeJwtToken = useOpenPLCStore.getState().runtimeConnection.jwtToken || null
-
-          window.bridge.runCompileProgram(
-            [projectPath, boardTarget, boardCore, false, projectData, targetIpAddress ?? '', runtimeJwtToken],
-            (data: {
-              logLevel?: 'info' | 'error' | 'warning'
-              message: string | Buffer
-              plcStatus?: string
-              closePort?: boolean
-            }) => {
-              if (typeof data.message === 'string') {
-                data.message
-                  .trim()
-                  .split('\n')
-                  .forEach((line) => {
-                    consoleActions.addLog({
-                      id: crypto.randomUUID(),
-                      level: data.logLevel ?? 'info',
-                      message: line,
-                    })
-                  })
-              }
-              if (data.message && typeof data.message !== 'string') {
-                BufferToStringArray(data.message).forEach((message) => {
-                  consoleActions.addLog({
-                    id: crypto.randomUUID(),
-                    level: data.logLevel ?? 'info',
-                    message,
-                  })
-                })
-              }
-
-              if (data.closePort) {
-                consoleActions.addLog({
-                  id: crypto.randomUUID(),
-                  level: 'info',
-                  message: 'Upload completed. Restarting debugger verification...',
-                })
-
-                setTimeout(() => {
-                  void handleMd5Verification(
-                    projectPath,
-                    boardTarget,
-                    connectionType,
-                    connectionParams,
-                    targetIpAddress,
-                    isRuntimeTarget,
-                  )
-                }, 2000)
-              }
-            },
-          )
+          void uploadDebugProgramAndRetry()
         } else {
           consoleActions.addLog({
             id: crypto.randomUUID(),
