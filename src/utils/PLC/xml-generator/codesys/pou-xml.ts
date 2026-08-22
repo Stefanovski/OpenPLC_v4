@@ -6,6 +6,7 @@ import { BaseXml } from '@root/types/PLC/xml-data/codesys'
 import { InterfaceXML } from '@root/types/PLC/xml-data/codesys/pous/interface/interface-diagram'
 import { VariableXML } from '@root/types/PLC/xml-data/codesys/variable/variable-diagram'
 
+import { baseTypeTag } from '../base-type-tag'
 import { fbdToXml } from './language/fbd-xml'
 import { ilToXML } from './language/il-xml'
 import { ladderToXml } from './language/ladder-xml'
@@ -34,9 +35,7 @@ export const codeSysParseInterface = (pou: PLCPou) => {
           baseType: {
             [variable.type.data.baseType.definition === 'user-data-type'
               ? 'derived'
-              : variable.type.data.baseType.value === 'string'
-                ? variable.type.data.baseType.value
-                : variable.type.data.baseType.value.toUpperCase()]:
+              : baseTypeTag(variable.type.data.baseType.value)]:
               variable.type.data.baseType.definition === 'user-data-type'
                 ? { '@name': variable.type.data.baseType.value }
                 : '',
@@ -51,7 +50,7 @@ export const codeSysParseInterface = (pou: PLCPou) => {
       }
     } else {
       vType = {
-        [variable.type.value === 'string' ? variable.type.value : variable.type.value.toUpperCase()]: '',
+        [baseTypeTag(variable.type.value)]: '',
       }
     }
 
@@ -81,7 +80,7 @@ export const codeSysParseInterface = (pou: PLCPou) => {
 
       const isBaseType = baseTypes.includes(returnType as (typeof baseTypes)[number])
       xml.returnType = isBaseType
-        ? { [returnType.trim().toUpperCase() === 'STRING' ? returnType.toLowerCase() : returnType.toUpperCase()]: '' }
+        ? { [baseTypeTag(returnType)]: '' }
         : { ['derived']: { '@name': returnType } }
     }
 
