@@ -909,6 +909,11 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             // This ensures nested FB variables like main:MOTOR_CONTROL0.TON0 are directly accessible
             const addNodeAndChildrenToMap = (node: DebugTreeNode) => {
               treeMap.set(node.compositeKey, node)
+              // Complex variables (especially arrays) do not have one index of their own.
+              // Register every resolved leaf under its editor-facing composite key.
+              if (node.debugIndex !== undefined) {
+                indexMap.set(node.compositeKey, node.debugIndex)
+              }
               if (node.children) {
                 for (const child of node.children) {
                   addNodeAndChildrenToMap(child)

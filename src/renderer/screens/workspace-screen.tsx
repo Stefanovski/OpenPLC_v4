@@ -1,7 +1,10 @@
 import { ClearConsoleButton } from '@components/_atoms/buttons/console/clear-console'
 import * as Tabs from '@radix-ui/react-tabs'
 import { DebugTreeNode } from '@root/types/debugger'
+import { baseTypeSchema } from '@root/types/PLC/open-plc'
+import type { PLCBaseTypesLowercase } from '@root/types/PLC/units/base-types'
 import { cn, isOpenPLCRuntimeTarget } from '@root/utils'
+import { parseDimensionRange } from '@root/utils/PLC/array-variable-utils'
 import { useEffect, useRef } from 'react'
 import { useState } from 'react'
 import { ImperativePanelHandle } from 'react-resizable-panels'
@@ -280,27 +283,7 @@ const WorkspaceScreen = () => {
                 name: varName,
                 type: {
                   definition: 'base-type',
-                  value: fbVar.type.value.toLowerCase() as
-                    | 'bool'
-                    | 'int'
-                    | 'real'
-                    | 'time'
-                    | 'string'
-                    | 'date'
-                    | 'sint'
-                    | 'dint'
-                    | 'lint'
-                    | 'usint'
-                    | 'uint'
-                    | 'udint'
-                    | 'ulint'
-                    | 'lreal'
-                    | 'tod'
-                    | 'dt'
-                    | 'byte'
-                    | 'word'
-                    | 'dword'
-                    | 'lword',
+                  value: fbVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
                 },
                 class: 'local',
                 location: '',
@@ -406,6 +389,48 @@ const WorkspaceScreen = () => {
               processNestedVariables(structVariables, pouName, nestedDebugPath, nestedVarName)
             }
           }
+        } else if (fbVar.type.definition === 'array') {
+          const arrayType = fbVar.type as typeof fbVar.type & {
+            data?: {
+              baseType: { definition: string; value: string }
+              dimensions: Array<{ dimension: string }>
+            }
+          }
+          const range = parseDimensionRange(arrayType.data?.dimensions[0]?.dimension ?? '')
+          const baseType = arrayType.data?.baseType
+          const normalizedBaseType = baseType?.value.toLowerCase()
+
+          if (
+            !range ||
+            baseType?.definition !== 'base-type' ||
+            !normalizedBaseType ||
+            !baseTypeSchema.safeParse(normalizedBaseType).success
+          ) {
+            console.warn(`[Debugger] Skipping unsupported array variable: ${variableNamePrefix}.${fbVar.name}`)
+            return
+          }
+
+          for (let offset = 0; offset <= range.upper - range.lower; offset++) {
+            const iecIndex = range.lower + offset
+            const debugPath = `${debugPathPrefix}.${fbVar.name.toUpperCase()}.value.table[${offset}]`
+            const index = debugVariableIndexes.get(debugPath)
+            if (index === undefined) continue
+
+            addVariableInfo(index, {
+              pouName,
+              variable: {
+                name: `${variableNamePrefix}.${fbVar.name}[${iecIndex}]`,
+                type: {
+                  definition: 'base-type',
+                  value: normalizedBaseType as PLCBaseTypesLowercase,
+                },
+                class: 'local',
+                location: '',
+                documentation: '',
+                debug: false,
+              },
+            })
+          }
         }
       })
     }
@@ -414,6 +439,33 @@ const WorkspaceScreen = () => {
       if (pou.type !== 'program') return
 
       pou.data.variables.forEach((v) => {
+        if (v.type.definition === 'array' && v.type.data.baseType.definition === 'base-type') {
+          const range = parseDimensionRange(v.type.data.dimensions[0]?.dimension ?? '')
+          if (!range) return
+
+          for (let iecIndex = range.lower; iecIndex <= range.upper; iecIndex++) {
+            const compositeKey = `${pou.data.name}:${v.name}[${iecIndex}]`
+            const index = debugVariableIndexes.get(compositeKey)
+            if (index === undefined) continue
+
+            addVariableInfo(index, {
+              pouName: pou.data.name,
+              variable: {
+                name: `${v.name}[${iecIndex}]`,
+                type: {
+                  definition: 'base-type',
+                  value: v.type.data.baseType.value,
+                },
+                class: v.class,
+                location: v.location,
+                documentation: v.documentation,
+                debug: v.debug,
+              },
+            })
+          }
+          return
+        }
+
         const compositeKey = `${pou.data.name}:${v.name}`
         const index = debugVariableIndexes.get(compositeKey)
         if (index !== undefined) {
@@ -426,7 +478,7 @@ const WorkspaceScreen = () => {
       })
     })
 
-    const { ladderFlows } = useOpenPLCStore.getState()
+    const { ladderFlows, fbdFlows } = useOpenPLCStore.getState()
 
     project.data.pous.forEach((pou) => {
       if (pou.type !== 'program') return
@@ -452,6 +504,15 @@ const WorkspaceScreen = () => {
               })
             })
           }
+        } else if (pou.data.body.language === 'fbd') {
+          const currentFbdFlow = fbdFlows.find((flow) => flow.name === pou.data.name)
+          currentFbdFlow?.rung.nodes.forEach((node) => {
+            if (node.type !== 'block') return
+            const blockData = node.data as { variable?: { name: string }; executionControl?: boolean }
+            if (blockData.variable?.name && blockData.executionControl) {
+              blockExecutionControlMap.set(blockData.variable.name, true)
+            }
+          })
         }
 
         functionBlockInstances.forEach((fbInstance) => {
@@ -505,27 +566,7 @@ const WorkspaceScreen = () => {
                     name: blockVarName,
                     type: {
                       definition: 'base-type',
-                      value: fbVar.type.value.toLowerCase() as
-                        | 'bool'
-                        | 'int'
-                        | 'real'
-                        | 'time'
-                        | 'string'
-                        | 'date'
-                        | 'sint'
-                        | 'dint'
-                        | 'lint'
-                        | 'usint'
-                        | 'uint'
-                        | 'udint'
-                        | 'ulint'
-                        | 'lreal'
-                        | 'tod'
-                        | 'dt'
-                        | 'byte'
-                        | 'word'
-                        | 'dword'
-                        | 'lword',
+                      value: fbVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
                     },
                     class: 'local',
                     location: '',
@@ -536,9 +577,12 @@ const WorkspaceScreen = () => {
               }
             })
 
-            // Process nested FB and struct variables recursively
+            // Process nested FB, struct and array variables recursively
             const nestedVariables = fbVariables.filter(
-              (v) => v.type.definition === 'derived' || v.type.definition === 'user-data-type',
+              (v) =>
+                v.type.definition === 'derived' ||
+                v.type.definition === 'user-data-type' ||
+                v.type.definition === 'array',
             )
             if (nestedVariables.length > 0) {
               const debugPathPrefix = `RES0__${programInstance.name.toUpperCase()}.${fbInstance.name.toUpperCase()}`
@@ -603,70 +647,68 @@ const WorkspaceScreen = () => {
           }
         })
 
-        if (pou.data.body.language === 'ld') {
-          const currentLadderFlow = ladderFlows.find((flow) => flow.name === pou.data.name)
-          if (currentLadderFlow) {
-            currentLadderFlow.rungs.forEach((rung) => {
-              rung.nodes.forEach((node) => {
-                if (node.type !== 'block') return
+        const registerFunctionTempOutputs = (nodes: Array<{ type?: string; data: object }>) => {
+          nodes.forEach((node) => {
+            if (node.type !== 'block') return
 
-                const blockData = node.data as {
-                  variable?: { name: string }
-                  variant?: {
-                    name: string
-                    type: string
-                    variables: Array<{ name: string; class: string; type: { definition: string; value: string } }>
-                  }
-                  numericId?: string
-                  executionControl?: boolean
-                }
+            const blockData = node.data as {
+              variant?: {
+                name: string
+                type: string
+                variables: Array<{ name: string; class: string; type: { definition: string; value: string } }>
+              }
+              numericId?: string
+              executionControl?: boolean
+            }
+            if (!blockData.variant || blockData.variant.type !== 'function' || !blockData.numericId) return
 
-                if (!blockData.variant || blockData.variant.type !== 'function') return
+            const blockName = blockData.variant.name.toUpperCase()
+            let baseTypeOutputs = blockData.variant.variables.filter(
+              (variable) =>
+                (variable.class === 'output' || variable.class === 'inOut') && variable.type.definition === 'base-type',
+            )
 
-                const blockName = blockData.variant.name.toUpperCase()
-                const numericId = blockData.numericId
-                if (!numericId) return
+            if (
+              blockData.executionControl &&
+              !baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
+            ) {
+              baseTypeOutputs = [
+                ...baseTypeOutputs,
+                { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
+              ]
+            }
 
-                let boolOutputs = blockData.variant.variables.filter(
-                  (v) =>
-                    (v.class === 'output' || v.class === 'inOut') &&
-                    v.type.definition === 'base-type' &&
-                    v.type.value.toUpperCase() === 'BOOL',
-                )
+            baseTypeOutputs.forEach((outputVariable) => {
+              const tempVarName = `_TMP_${blockName}${blockData.numericId}_${outputVariable.name}`
+              const debugPath = `RES0__${programInstance.name.toUpperCase()}.${tempVarName.toUpperCase()}`
+              const index = debugVariableIndexes.get(debugPath)
+              if (index === undefined) return
 
-                const hasExecutionControl = blockData.executionControl || false
-                if (hasExecutionControl) {
-                  const hasENO = boolOutputs.some((v) => v.name.toUpperCase() === 'ENO')
-                  if (!hasENO) {
-                    boolOutputs = [
-                      ...boolOutputs,
-                      { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
-                    ]
-                  }
-                }
-
-                boolOutputs.forEach((outputVar) => {
-                  const debugPath = `RES0__${programInstance.name.toUpperCase()}._TMP_${blockName}${numericId}_${outputVar.name.toUpperCase()}`
-                  const index = debugVariableIndexes.get(debugPath)
-
-                  if (index !== undefined) {
-                    const tempVarName = `_TMP_${blockName}${numericId}_${outputVar.name}`
-                    addVariableInfo(index, {
-                      pouName: pou.data.name,
-                      variable: {
-                        name: tempVarName,
-                        type: { definition: 'base-type', value: 'bool' },
-                        class: 'local',
-                        location: '',
-                        documentation: '',
-                        debug: false,
-                      },
-                    })
-                  }
-                })
+              addVariableInfo(index, {
+                pouName: pou.data.name,
+                variable: {
+                  name: tempVarName,
+                  type: {
+                    definition: 'base-type',
+                    value: outputVariable.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                  },
+                  class: 'local',
+                  location: '',
+                  documentation: '',
+                  debug: false,
+                },
               })
             })
-          }
+          })
+        }
+
+        if (pou.data.body.language === 'ld') {
+          ladderFlows
+            .find((flow) => flow.name === pou.data.name)
+            ?.rungs.forEach((rung) => registerFunctionTempOutputs(rung.nodes))
+        } else if (pou.data.body.language === 'fbd') {
+          const currentFbdFlow = fbdFlows.find((flow) => flow.name === pou.data.name)
+          if (currentFbdFlow) registerFunctionTempOutputs(currentFbdFlow.rung.nodes)
         }
       }
     })
@@ -706,27 +748,7 @@ const WorkspaceScreen = () => {
               name: varName,
               type: {
                 definition: 'base-type',
-                value: fbVar.type.value.toLowerCase() as
-                  | 'bool'
-                  | 'int'
-                  | 'real'
-                  | 'time'
-                  | 'string'
-                  | 'date'
-                  | 'sint'
-                  | 'dint'
-                  | 'lint'
-                  | 'usint'
-                  | 'uint'
-                  | 'udint'
-                  | 'ulint'
-                  | 'lreal'
-                  | 'tod'
-                  | 'dt'
-                  | 'byte'
-                  | 'word'
-                  | 'dword'
-                  | 'lword',
+                value: fbVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
               },
               class: 'local',
               location: '',
@@ -737,9 +759,10 @@ const WorkspaceScreen = () => {
         }
       })
 
-      // 2. Process nested FB and struct variables recursively
+      // 2. Process nested FB, struct and array variables recursively
       const nestedVariables = fbVariables.filter(
-        (v) => v.type.definition === 'derived' || v.type.definition === 'user-data-type',
+        (v) =>
+          v.type.definition === 'derived' || v.type.definition === 'user-data-type' || v.type.definition === 'array',
       )
       if (nestedVariables.length > 0) {
         processNestedVariables(nestedVariables, programPouName, debugPathPrefix, variablePathPrefix)
@@ -785,26 +808,25 @@ const WorkspaceScreen = () => {
               const numericId = blockData.numericId
               if (!numericId) return
 
-              let boolOutputs = blockData.variant.variables.filter(
-                (v) =>
-                  (v.class === 'output' || v.class === 'inOut') &&
-                  v.type.definition === 'base-type' &&
-                  v.type.value.toUpperCase() === 'BOOL',
+              let baseTypeOutputs = blockData.variant.variables.filter(
+                (variable) =>
+                  (variable.class === 'output' || variable.class === 'inOut') &&
+                  variable.type.definition === 'base-type',
               )
 
               // Add ENO if execution control is enabled
               const hasExecutionControl = blockData.executionControl || false
               if (hasExecutionControl) {
-                const hasENO = boolOutputs.some((v) => v.name.toUpperCase() === 'ENO')
+                const hasENO = baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
                 if (!hasENO) {
-                  boolOutputs = [
-                    ...boolOutputs,
+                  baseTypeOutputs = [
+                    ...baseTypeOutputs,
                     { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
                   ]
                 }
               }
 
-              boolOutputs.forEach((outputVar) => {
+              baseTypeOutputs.forEach((outputVar) => {
                 // Debug path uses the full nested path:
                 // RES0__INSTANCE0.FB_B0.FB_A0._TMP_EQ_STATE7415072_ENO
                 const debugPath = `${debugPathPrefix}._TMP_${blockName}${numericId}_${outputVar.name.toUpperCase()}`
@@ -817,7 +839,10 @@ const WorkspaceScreen = () => {
                     pouName: programPouName,
                     variable: {
                       name: tempVarName,
-                      type: { definition: 'base-type', value: 'bool' },
+                      type: {
+                        definition: 'base-type',
+                        value: outputVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                      },
                       class: 'local',
                       location: '',
                       documentation: '',
@@ -1331,6 +1356,44 @@ const WorkspaceScreen = () => {
             }
           }
         }
+
+        // Graphical editors display live badges for every base-type variable of the active POU.
+        if (currentPou) {
+          if (currentPou.type === 'function-block') {
+            const fbTypeKey = currentPou.data.name.toUpperCase()
+            const selectedKey = fbSelectedInstance.get(fbTypeKey)
+            const instances = fbDebugInstances.get(fbTypeKey) || []
+            const selectedInstance = instances.find((instance) => instance.key === selectedKey)
+
+            if (selectedInstance) {
+              const instancePrefix = `${selectedInstance.fbVariableName}.`
+              variableInfoMapRef.current.forEach((varInfos) => {
+                for (const varInfo of varInfos) {
+                  if (
+                    varInfo.pouName === selectedInstance.programName &&
+                    varInfo.variable.name.startsWith(instancePrefix)
+                  ) {
+                    debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
+                  }
+                }
+              })
+            }
+          } else {
+            variableInfoMapRef.current.forEach((varInfos) => {
+              for (const varInfo of varInfos) {
+                if (varInfo.pouName === currentPou.data.name) {
+                  debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
+                }
+              }
+            })
+          }
+        }
+
+        // A force operation must keep polling the affected value even if it is not otherwise watched.
+        const {
+          workspace: { debugForcedVariables: currentForcedVariables },
+        } = useOpenPLCStore.getState()
+        currentForcedVariables.forEach((_value, compositeKey) => debugVariableKeys.add(compositeKey))
 
         const allIndexes = Array.from(variableInfoMapRef.current.entries())
           .filter(([_, varInfos]) =>

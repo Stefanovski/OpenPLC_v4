@@ -11,6 +11,7 @@ type ArrayModalProps = {
   arrayModalIsOpen: boolean
   setArrayModalIsOpen: (value: boolean) => void
   closeContainer: () => void
+  language?: string | null
 }
 
 type Pou = { type: string; name: string }
@@ -23,6 +24,7 @@ export const ArrayModal = ({
   setArrayModalIsOpen,
   variableName,
   VariableRow,
+  language,
 }: ArrayModalProps) => {
   const {
     editor: {
@@ -35,11 +37,15 @@ export const ArrayModal = ({
     libraries: sliceLibraries,
   } = useOpenPLCStore()
 
-  const baseTypes = baseTypeSchema.options.filter((type) => type.toUpperCase() !== 'ARRAY')
+  const isCppLanguage = language === 'cpp'
+  const unsupportedCppTypes = ['TIME', 'DATE', 'TOD', 'DT', 'LOGLEVEL']
+  const baseTypes = baseTypeSchema.options.filter(
+    (type) => type.toUpperCase() !== 'ARRAY' && (!isCppLanguage || !unsupportedCppTypes.includes(type.toUpperCase())),
+  )
 
-  const userDataTypes = dataTypes
-    .map((type) => type.name)
-    .filter((typeName) => typeName !== name && typeName.toUpperCase() !== 'ARRAY')
+  const userDataTypes = isCppLanguage
+    ? []
+    : dataTypes.map((type) => type.name).filter((typeName) => typeName !== name && typeName.toUpperCase() !== 'ARRAY')
 
   const systemFunctionBlocks = sliceLibraries.system.flatMap((lib) =>
     lib.pous.filter((pou) => pou.type === 'function-block').map((pou) => pou.name.toUpperCase()),
@@ -55,13 +61,15 @@ export const ArrayModal = ({
 
   const VariableTypes = [
     { definition: 'base-type', values: baseTypes },
-    { definition: 'user-data-type', values: userDataTypes },
+    ...(isCppLanguage ? [] : [{ definition: 'user-data-type', values: userDataTypes }]),
   ]
 
-  const LibraryTypes = [
-    { definition: 'system', values: systemFunctionBlocks },
-    { definition: 'user', values: userFunctionBlocks },
-  ]
+  const LibraryTypes = isCppLanguage
+    ? []
+    : [
+        { definition: 'system', values: systemFunctionBlocks },
+        { definition: 'user', values: userFunctionBlocks },
+      ]
 
   const [selectedInput, setSelectedInput] = useState<string>('')
   const [dimensions, setDimensions] = useState<string[]>([])

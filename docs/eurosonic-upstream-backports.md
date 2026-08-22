@@ -23,7 +23,7 @@ The following behavior is product-owned and must not be replaced implicitly:
 | Integration branch pattern | `codex/sync-openplc-v<version>` |
 | Local safety tag | `eurosonic-gen2-2.11.0-working` |
 | Package version at the working baseline | `4.0.7-beta` |
-| Current Eurosonic editor version | `4.1.3` |
+| Current Eurosonic editor version | `4.1.4` |
 | Last official tag before the fork point | `v4.0.6-beta` |
 | Actual upstream fork point | `8516dad1e62fb2b8c31287a941f0ef355fc35141` |
 | First later official release | `v4.1.0` |
@@ -336,6 +336,64 @@ Validation after the complete tranche:
 Version `4.1.3` denotes selective synchronization through official OpenPLC tag `v4.1.3` for the supported
 Eurosonic/STM32H7 workflow. Excluded simulator, Arduino, and absent official server-architecture changes are listed
 above rather than being implied by the version number.
+
+## Completed `v4.1.4` tranche
+
+The 14 official commits changed only 21 files and contained no Configuration, Eurosonic upload/discovery, PLC image,
+MatIEC, or xml2st changes. The applicable debugger and STM32H7 code-generation changes were ported into the existing
+Eurosonic architecture:
+
+| Upstream commit | Change |
+| --- | --- |
+| `11d5fe955` | Register FBD function outputs and keep forced variables in the debugger polling set |
+| `69e074f69`, `c533d4dbc` | Display live non-BOOL variable and function-output values in LD/FBD |
+| `6a06cd509` | Share the lowercase PLC base-type type used by debugger registrations |
+| `aabaab625` | Poll the selected function-block instance using its hosting program and full instance path |
+| `158fee1f5`, `fbd72b26d`, `e1164f6a4` | Resolve array elements, IEC lower bounds, and external-array paths in the active Eurosonic debugger tree |
+| `390391273`, `0416094ad`, `fbd72b26d` | Support C++ block arrays with correct MatIEC wrapper stride and copy-back semantics |
+
+The following changes were deliberately not applied:
+
+- The simulator MD5-endianness part of `11d5fe955`; Eurosonic debugging talks to the STM32H7 target and does not use
+  the local AVR simulator.
+- Python function-block arrays and their shared-memory runtime. That implementation requires a host OS process and
+  is not portable to the bare-metal STM32H7 generator target.
+
+There are no MatIEC or xml2st changes between official tags `v4.1.3` and `v4.1.4`.
+
+Validation after the complete tranche:
+
+- `npm run build:main` and `npm run build:renderer`: passed
+- development renderer Webpack build with `ts-loader`: passed
+- TypeScript source check with `--skipLibCheck`: passed
+- ESLint on all changed TypeScript/TSX files: passed
+- complete unit suite: 8 suites and 67 tests passed
+- isolated `v4TestProject` XML-to-ST-to-C-to-debug-to-GlueVars pipeline: passed
+- `%IW1000` and `%QW1200` still map to `int_input_ptr[1000]` and `int_output_ptr[1200]`
+- synchronized M7 Debug and Release builds: passed with zero warnings and errors
+- linked PLC entry points and the 1024-byte image header verified at their fixed addresses
+- no upload or hardware access was performed
+
+Version `4.1.4` denotes selective synchronization through official OpenPLC tag `v4.1.4` for the supported
+Eurosonic/STM32H7 workflow. It does not imply adoption of the excluded simulator or Python host-runtime behavior.
+
+### Eurosonic M7 runtime contract
+
+The generated PLC module and the M7 application are separate binaries. They are synchronized through this narrow
+ABI contract rather than by copying the complete runtime directories:
+
+| Contract item | Value |
+| --- | --- |
+| PLC flash / image header | `0x081C0000`, 1024 bytes |
+| `init_plc` entry point | `0x081C0400` |
+| `run_plc` entry point | `0x081C0500` |
+| debugger function table | `0x081C0600` |
+| program artifact | `OPEN_PLC.bin` |
+| process image | BOOL/WORD I/O pointers in DTCM, memory words in PLC SDRAM |
+
+`FlashHeader_t`, the linker script, post-processing and the H7-relevant MatIEC declarations must remain compatible
+with `ESSTM_H7_M7`. The M7-owned `hw.c`, loader task, Modbus server, Profinet integration and direct-I/O behavior
+must not be replaced with the Editor template implementations.
 
 ## Acceptance gate for every backport
 

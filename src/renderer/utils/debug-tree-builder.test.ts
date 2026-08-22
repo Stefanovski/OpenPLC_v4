@@ -45,4 +45,52 @@ describe('buildDebugTree', () => {
     expect(innerNode?.fullPath).toBe(expectedInnerPath)
     expect(valueNode).toMatchObject({ fullPath: debugPath, debugIndex: 7, type: 'INT' })
   })
+
+  it('maps IEC array bounds to zero-based MatIEC table offsets', () => {
+    const arrayVariable: PLCVariable = {
+      name: 'samples',
+      class: 'local',
+      type: {
+        definition: 'array',
+        value: 'ARRAY [-2..0] OF INT',
+        data: {
+          baseType: { definition: 'base-type', value: 'int' },
+          dimensions: [{ dimension: '-2..0' }],
+        },
+      },
+      location: '',
+      documentation: '',
+    }
+    const variables = [0, 1, 2].map((offset) => debugVariable(`RES0__INSTANCE0.SAMPLES.value.table[${offset}]`))
+
+    const tree = buildDebugTree(arrayVariable, 'main', 'instance0', variables, project)
+
+    expect(tree.children?.map((child) => [child.compositeKey, child.fullPath])).toEqual([
+      ['main:samples[-2]', 'RES0__INSTANCE0.SAMPLES.value.table[0]'],
+      ['main:samples[-1]', 'RES0__INSTANCE0.SAMPLES.value.table[1]'],
+      ['main:samples[0]', 'RES0__INSTANCE0.SAMPLES.value.table[2]'],
+    ])
+  })
+
+  it('uses the CONFIG0 global path for external arrays', () => {
+    const arrayVariable: PLCVariable = {
+      name: 'global_values',
+      class: 'external',
+      type: {
+        definition: 'array',
+        value: 'ARRAY [1..1] OF DINT',
+        data: {
+          baseType: { definition: 'base-type', value: 'dint' },
+          dimensions: [{ dimension: '1..1' }],
+        },
+      },
+      location: '',
+      documentation: '',
+    }
+    const path = 'CONFIG0__GLOBAL_VALUES.value.table[0]'
+
+    const tree = buildDebugTree(arrayVariable, 'main', 'instance0', [debugVariable(path)], project)
+
+    expect(tree.children?.[0]).toMatchObject({ compositeKey: 'main:global_values[1]', fullPath: path, debugIndex: 7 })
+  })
 })
