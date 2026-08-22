@@ -10,14 +10,18 @@ extern IEC_UINT IW[];
 extern IEC_UINT QW[];
 
 
-// This structure is used to identify the binary file
+// This structure is shared with the M7 loader. Keep its layout in sync with
+// FlashHeader_t in ESSTM_H7_M7/src/openplc/runtime/plc_main.h.
 typedef struct
 {
-	uint32_t uiHeaderStart;
-	uint32_t uiBinaryLength;
+	uint8_t estack_reset[8];
+	uint32_t uiHeader;
+	uint32_t uiLength;
 	uint8_t aInfo[32];
-	uint8_t aReserved[8];
 	uint8_t aMD5[16];
+	uint8_t uiState;
+	uint8_t plcMD5[32];
+	uint8_t aReserved[927];
 } FlashHeader_t;
 
 typedef enum {

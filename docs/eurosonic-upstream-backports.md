@@ -370,10 +370,30 @@ Validation after the complete tranche:
 - complete unit suite: 8 suites and 67 tests passed
 - isolated `v4TestProject` XML-to-ST-to-C-to-debug-to-GlueVars pipeline: passed
 - `%IW1000` and `%QW1200` still map to `int_input_ptr[1000]` and `int_output_ptr[1200]`
+- synchronized M7 Debug and Release builds: passed with zero warnings and errors
+- linked PLC entry points and the 1024-byte image header verified at their fixed addresses
 - no upload or hardware access was performed
 
 Version `4.1.4` denotes selective synchronization through official OpenPLC tag `v4.1.4` for the supported
 Eurosonic/STM32H7 workflow. It does not imply adoption of the excluded simulator or Python host-runtime behavior.
+
+### Eurosonic M7 runtime contract
+
+The generated PLC module and the M7 application are separate binaries. They are synchronized through this narrow
+ABI contract rather than by copying the complete runtime directories:
+
+| Contract item | Value |
+| --- | --- |
+| PLC flash / image header | `0x081C0000`, 1024 bytes |
+| `init_plc` entry point | `0x081C0400` |
+| `run_plc` entry point | `0x081C0500` |
+| debugger function table | `0x081C0600` |
+| program artifact | `OPEN_PLC.bin` |
+| process image | BOOL/WORD I/O pointers in DTCM, memory words in PLC SDRAM |
+
+`FlashHeader_t`, the linker script, post-processing and the H7-relevant MatIEC declarations must remain compatible
+with `ESSTM_H7_M7`. The M7-owned `hw.c`, loader task, Modbus server, Profinet integration and direct-I/O behavior
+must not be replaced with the Editor template implementations.
 
 ## Acceptance gate for every backport
 
