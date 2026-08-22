@@ -1,6 +1,8 @@
 import { PLCDataType } from '@root/types/PLC/open-plc'
 import { BaseXml } from '@root/types/PLC/xml-data/old-editor'
 
+import { baseTypeTag } from '../base-type-tag'
+
 const parseDimensions = (dimensions: Array<{ dimension: string }>) => {
   return (
     dimensions?.map((dimension) => {
@@ -28,9 +30,7 @@ export const oldEditorParseDataTypesToXML = (xml: BaseXml, dataTypes: PLCDataTyp
               baseType: {
                 [dataType.baseType.definition === 'user-data-type'
                   ? 'derived'
-                  : dataType.baseType.value === 'string'
-                    ? 'string'
-                    : dataType.baseType.value.toUpperCase()]:
+                  : baseTypeTag(dataType.baseType.value)]:
                   dataType.baseType.definition === 'user-data-type' ? { '@name': dataType.baseType.value } : '',
               },
             },
@@ -80,7 +80,7 @@ export const oldEditorParseDataTypesToXML = (xml: BaseXml, dataTypes: PLCDataTyp
                     return {
                       '@name': variable.name,
                       type: {
-                        [variable.type.value === 'string' ? 'string' : variable.type.value.toUpperCase()]: '',
+                        [baseTypeTag(variable.type.value)]: '',
                       },
                       initialValue: variable.initialValue?.simpleValue.value
                         ? {
@@ -113,16 +113,14 @@ export const oldEditorParseDataTypesToXML = (xml: BaseXml, dataTypes: PLCDataTyp
                           baseType: {
                             [variable.type.data.baseType.definition === 'user-data-type'
                               ? 'derived'
-                              : variable.type.data.baseType.value === 'string'
-                                ? 'string'
-                                : variable.type.data.baseType.value.toUpperCase()]:
+                              : baseTypeTag(variable.type.data.baseType.value)]:
                               variable.type.data.baseType.definition === 'user-data-type'
                                 ? { '@name': variable.type.data.baseType.value }
                                 : '',
                           },
                         },
                       },
-                      initialValue: variable.initialValue
+                      initialValue: variable.initialValue?.simpleValue.value
                         ? {
                             simpleValue: {
                               '@value': variable.initialValue.simpleValue.value,
@@ -136,7 +134,7 @@ export const oldEditorParseDataTypesToXML = (xml: BaseXml, dataTypes: PLCDataTyp
                       type: {
                         derived: { '@name': variable.type.value },
                       },
-                      initialValue: variable.initialValue
+                      initialValue: variable.initialValue?.simpleValue.value
                         ? {
                             simpleValue: {
                               '@value': variable.initialValue.simpleValue.value,

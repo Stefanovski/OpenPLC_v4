@@ -377,6 +377,55 @@ Validation after the complete tranche:
 Version `4.1.4` denotes selective synchronization through official OpenPLC tag `v4.1.4` for the supported
 Eurosonic/STM32H7 workflow. It does not imply adoption of the excluded simulator or Python host-runtime behavior.
 
+## Completed `v4.2.0` tranche
+
+Official `v4.2.0` replaces the editor architecture and, from commit `2a857a0b6`, replaces MatIEC with STruC++.
+That compiler/debugger/runtime migration is not wire-compatible with the existing Eurosonic M7 contract. The tag was
+therefore treated as a functional inventory and only isolated fixes that fit the existing architecture were ported:
+
+| Upstream commit | Change | Local commit |
+| --- | --- | --- |
+| `a47858dd7`, `e4963770f` and lifecycle follow-ups | Display cached ST/IL inline debug values without rescanning on every poll | `89956b516` |
+| `9dd8cc203` | Undefine generated C/C++ block port macros between blocks | `235acf63c` |
+| `b2cb93fde` | Stop the FBD divergence state from causing an infinite render loop | `4ba678614` |
+| `9f1328980` | Match user-defined types case-insensitively in autocomplete | `1597d51b6` |
+| `975b79374` | Keep watched nested and array values in the debugger polling set | `c64101b25` |
+| `0f1bcfc6e`, `22791411f` | Resolve nested `ANY_*` types used by EQ/NE/LT/GT/LE/GE without crashing | `d17387eeb` |
+| `3c1887dae` | Keep xyflow from consuming Space inside Monaco's EditContext editor | `d17387eeb` |
+| `afe0f0d37` | Normalize legacy Ladder `connectedVariables` before components read it | `d17387eeb` |
+| `d828f1468`, `c12a00ca4`, `9b9ebc1a4` | Correct PLCopen string tags and omit invalid empty/BOOL-specific data-type initializers | `7faaa530c` |
+| `fbaf0a6c8` | Reject unnamed FBD variable blocks before XML generation with an actionable error | `7faaa530c` |
+
+The following changes were deliberately not applied:
+
+- the complete `src2`/`src/frontend`/ports-and-adapters architecture migration;
+- STruC++, Runtime v4, three-byte debug addresses, endian sentinels and MD5/debug-map protocol changes;
+- VPP, EtherCAT, Arduino, local simulator, soft-PLC and host-only runtime changes;
+- xml2st 4.0.4/4.0.5 and `--keep-structs`, which are coupled to STruC++ block resolution rather than the tested
+  Eurosonic MatIEC rewrite;
+- the broad save/history/multi-mounted-editor and POU-rename refactors, which require the new store architecture;
+- polling-by-runtime-`lastIndex` and DT/DATE/TOD/WSTRING wire parsing changes, whose semantics belong to the new
+  STruC++ debug map and would endanger the existing M7 protocol;
+- large Ladder branch/layout changes whose prerequisite editor model is absent from this branch.
+
+Validation after the complete tranche:
+
+- `npm run build:main` and `npm run build:renderer`: passed
+- TypeScript source check with `--skipLibCheck`: passed
+- ESLint on the changed editor/util files: passed; the large legacy compiler module still reports its documented
+  pre-existing lint debt when linted as a whole
+- complete unit suite: 14 suites and 82 tests passed
+- isolated `v4TestProject` XML-to-ST-to-C-to-debug-to-GlueVars pipeline: passed
+- PLC program MD5 remains `e1e9f22a39e862638d43578813643df1`
+- `%IW1000` and `%QW1200` remain in `LOCATED_VARIABLES.h`; GlueVars still links them as `__IW1000` and `__QW1200`
+- all generated source artifacts match the reference after Eurosonic preprocessing except the already documented,
+  semantically irrelevant debug switch-case ordering
+- the direct ARM CMake link again stops in the previously documented local compiler-ABI detection hang
+- no upload or hardware access was performed
+
+Version `4.2.0` denotes selective synchronization through official OpenPLC tag `v4.2.0` for the supported
+Eurosonic/STM32H7 workflow. It explicitly does not claim adoption of the incompatible STruC++/Runtime-v4 platform.
+
 ### Eurosonic M7 runtime contract
 
 The generated PLC module and the M7 application are separate binaries. They are synchronized through this narrow

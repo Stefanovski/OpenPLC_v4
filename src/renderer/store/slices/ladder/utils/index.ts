@@ -11,6 +11,9 @@ import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-
 import { Edge, Node } from '@xyflow/react'
 
 import { RungLadderState } from '../types'
+import { normalizeConnectedVariables } from './normalize-connected-variables'
+
+export { normalizeConnectedVariables } from './normalize-connected-variables'
 
 export const duplicateLadderRung = (editorName: string, rung: RungLadderState): RungLadderState => {
   const nodeMaps: { [key: string]: Node } = rung.nodes.reduce(
@@ -58,7 +61,9 @@ export const duplicateLadderRung = (editorName: string, rung: RungLadderState): 
               (node as BlockNode<BlockVariant>).data.variant.type === 'function-block'
                 ? { name: '' }
                 : node.data.variable,
-            connectedVariables: (node as BlockNode<BlockVariant>).data.connectedVariables,
+            connectedVariables: normalizeConnectedVariables(
+              (node as BlockNode<BlockVariant>).data.connectedVariables,
+            ),
           },
         } as BlockNode<BlockVariant>
       }

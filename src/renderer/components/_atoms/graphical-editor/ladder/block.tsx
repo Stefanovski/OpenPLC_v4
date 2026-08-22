@@ -436,7 +436,8 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
 
   const connectedOutputNames = useMemo(() => {
     const names = new Set<string>()
-    for (const connectedVariable of data.connectedVariables ?? []) {
+    const connectedVariables = Array.isArray(data.connectedVariables) ? data.connectedVariables : []
+    for (const connectedVariable of connectedVariables) {
       if (connectedVariable.type === 'output' && connectedVariable.variable) {
         names.add(connectedVariable.handleId)
       }

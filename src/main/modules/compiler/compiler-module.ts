@@ -14,6 +14,7 @@ import type { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import { XmlGenerator } from '@root/utils'
 import { type CppPouData as CppPouDataCode, generateCBlocksCode } from '@root/utils/cpp/generateCBlocksCode'
 import { type CppPouData as CppPouDataHeader, generateCBlocksHeader } from '@root/utils/cpp/generateCBlocksHeader'
+import { findEmptyFbdVariables } from '@root/utils/PLC/validate-empty-fbd-variables'
 //import { parsePlcStatus } from '@root/utils/plc-status'
 //import { getRuntimeHttpsOptions } from '@root/utils/runtime-https-config'
 import { app as electronApp, dialog } from 'electron'
@@ -126,6 +127,31 @@ class CompilerModule {
       level: 'info',
       cleanedMessage: message,
     }
+  }
+
+  private validateFbdVariables(
+    projectData: ProjectState['data'],
+    mainProcessPort: MessagePortMain,
+    stoppingMessage: string,
+  ): boolean {
+    const emptyVariables = findEmptyFbdVariables(projectData)
+    if (emptyVariables.length === 0) return true
+
+    emptyVariables.forEach((variable) => {
+      const location = variable.connectedTo
+        ? `connected to ${variable.connectedTo}`
+        : `at x=${variable.x}, y=${variable.y}`
+      mainProcessPort.postMessage({
+        logLevel: 'error',
+        message: `POU "${variable.pouName}": an FBD ${variable.kind} variable block has no name (${location}). Name it before compiling.`,
+      })
+    })
+    mainProcessPort.postMessage({
+      logLevel: 'error',
+      message: `Compilation aborted: name all FBD variable blocks and try again.\n${stoppingMessage}`,
+    })
+    mainProcessPort.close()
+    return false
   }
 
   // Initialize paths based on the environment
@@ -2235,6 +2261,8 @@ async handleUploadProgram({
       message: this.getHostHardwareInfo(),
     })
 
+    if (!this.validateFbdVariables(projectData, _mainProcessPort, 'Stopping compilation process.')) return
+
     // --- Check tools availability ---
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
 
@@ -2626,6 +2654,8 @@ async handleUploadProgram({
       logLevel: 'info',
       message: `Compiling for debugger - project: ${projectPath}, board: ${boardTarget}`,
     })
+
+    if (!this.validateFbdVariables(projectData, _mainProcessPort, 'Stopping debug compilation process.')) return
 
     try {
       const iec2cCheckResult = await this.checkIec2cAvailability()

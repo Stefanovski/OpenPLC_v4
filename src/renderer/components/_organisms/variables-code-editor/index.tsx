@@ -46,7 +46,7 @@ const VariablesCodeEditor = ({ code, onCodeChange, shouldUseDarkMode }: Variable
     <div
       ref={containerRef}
       aria-label='Variable Code Editor Container'
-      className='h-full w-full'
+      className='nokey h-full w-full'
       style={{ overflow: 'hidden' }}
     >
       <Editor
