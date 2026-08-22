@@ -14,6 +14,7 @@ OpenPLC Linux/Windows runtime is ported.
 | Area | Baseline |
 | --- | --- |
 | MatIEC source | `Autonomy-Logic/matiec` tag `v4.0.9`, commit `8d220fd76dc9bfde839ab5c6ea3bc222356f4aae` |
+| Eurosonic debug fork | branch `codex/matiec-debugger-gruen`, commit `6300e39739cc25ea03d1e93b196efa73527ad784` |
 | Bundled compiler | `resources/bin/*/iec2c`, reports `matiec version 4.0.9`, changeset `8d220fd` |
 | MatIEC ST generator | `stage4/generate_c/generate_c_st.cc` |
 | AST source locations | `symbol_c::{first,last}_{file,line,column}` in `absyntax/absyntax.hh` |
@@ -71,6 +72,8 @@ places a MatIEC include pragma in the generated POU body:
 MatIEC already tracks included filenames and resets line/column positions for them. Statement metadata therefore
 uses the original body-local line numbers without teaching MatIEC about PLCopen XML or the Editor project model.
 Generated LD/FBD/SFC bodies retain a generated source name; graphical element mapping remains RED scope.
+The Eurosonic scanner extension explicitly recognizes include pragmas while selecting a POU body language; a
+regression test ensures that included ST is parsed and never leaks into generated C as a preprocessor include.
 
 ### 4. Semantic debug points
 
