@@ -1,0 +1,71 @@
+export type IecDebugPou = {
+  id: number
+  key: string
+  name: string
+  kind: string
+}
+
+export type IecDebugStatement = {
+  id: number
+  pou_id: number
+  key: string
+  file: string
+  line: number
+  column: number
+  end_line: number
+  end_column: number
+  type: string
+}
+
+export type IecDebugVariable = {
+  id: number
+  key: string
+  name: string
+  type: string
+  type_code: number
+  legacy_index: number
+  writable: boolean
+}
+
+export type IecDebugMetadata = {
+  format: 'eurosonic-plc-debug'
+  version: 1
+  id_algorithm: 'fnv1a32'
+  build_id: string
+  pous: IecDebugPou[]
+  statements: IecDebugStatement[]
+  variables: IecDebugVariable[]
+  instances: unknown[]
+}
+
+export type IecDebugStatus = {
+  state: number
+  currentStatementId: number
+  currentPouId: number
+  currentInstanceId: number
+  breakpointCount: number
+  breakpointCapacity: number
+  pointCount: string
+  haltCount: string
+}
+
+export type IecDebugVariableValue = {
+  forced: boolean
+  type: number
+  value: number[]
+}
+
+export type IecDebugVariableRequest = {
+  id: number
+  type: number
+}
+
+export type IecDebugVariableBatchValue = IecDebugVariableValue & {
+  id: number
+}
+
+export type IecDebugResponse<T = void> = {
+  success: boolean
+  data?: T
+  error?: string
+}

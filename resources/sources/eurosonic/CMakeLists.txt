@@ -25,6 +25,18 @@ file(GLOB_RECURSE SOURCES
     ${CMAKE_SOURCE_DIR}/runtime/*.c
 )
 
+# Host-side unit tests are intentionally kept beside the embedded runtime, but
+# must never be linked into the controller firmware.
+list(FILTER SOURCES EXCLUDE REGEX ".*/runtime/tests/.*")
+
+# Statement debugging is an explicit build mode. A normal build does not link
+# the breakpoint runtime or reserve its fixed ABI table.
+list(FILTER SOURCES EXCLUDE REGEX ".*/plc_debug_runtime\\.c$")
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/program.debug.json)
+    list(APPEND SOURCES ${CMAKE_SOURCE_DIR}/runtime/plc_debug_runtime.c)
+    add_compile_definitions(PLC_DEBUG_ENABLED=1)
+endif()
+
 # Add the executable target
 add_executable(OpenPLC ${SOURCES})
 

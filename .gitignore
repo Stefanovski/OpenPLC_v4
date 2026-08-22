@@ -54,3 +54,7 @@ resources/st-compiler/**.spec
 playwright-report
 /blob-report/
 /playwright/.cache/
+
+# Local compiler worktree/toolchain used to build the Eurosonic MatIEC fork
+/.matiec-worktree/
+/.tooling/

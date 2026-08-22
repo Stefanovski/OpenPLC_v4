@@ -1,5 +1,18 @@
 import type { PLCVariable } from '@root/types/PLC/open-plc'
 
+export function toNativeIecDebugValue(value: Uint8Array, type: number): Uint8Array {
+  // The existing value editor encodes multi-byte values in network order for
+  // the legacy 0x42 protocol. Stable IEC debug payloads are raw MatIEC memory
+  // and therefore little-endian on STM32H7.
+  if (type === 16) {
+    const stringValue = new Uint8Array(127)
+    stringValue.set(value.subarray(0, stringValue.length))
+    return stringValue
+  }
+  const multiByteTypes = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20]
+  return multiByteTypes.includes(type) ? Uint8Array.from(value).reverse() : value
+}
+
 function readInt8(data: Uint8Array, offset: number): number {
   const value = data[offset]
   return value > 127 ? value - 256 : value

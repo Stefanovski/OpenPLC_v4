@@ -2,19 +2,27 @@ import { getProjectPath } from '@root/main/utils'
 import { CreatePouFileProps } from '@root/types/IPC/pou-service'
 import { CreateProjectFileProps } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
+import type {
+  IecDebugMetadata,
+  IecDebugStatus,
+  IecDebugVariableBatchValue,
+  IecDebugVariableRequest,
+  IecDebugVariableValue,
+} from '@root/types/PLC/iec-debug'
 import { getRuntimeHttpsOptions } from '@root/utils/runtime-https-config'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { app, nativeTheme, shell } from 'electron'
+import { readFile } from 'fs/promises'
 import type { IncomingMessage } from 'http'
 import https from 'https'
-import { join } from 'path'
+import { isAbsolute, join, resolve } from 'path'
 import { platform } from 'process'
 
 import { ProjectState } from '../../../renderer/store/slices'
 import { PLCPou, PLCProject } from '../../../types/PLC/open-plc'
 import { MainIpcModule, MainIpcModuleConstructor } from '../../contracts/types/modules/ipc/main'
 import { logger } from '../../services'
-import { ModbusTcpClient } from '../modbus/modbus-client'
+import { IecDebugState, ModbusTcpClient } from '../modbus/modbus-client'
 import { ModbusRtuClient } from '../modbus/modbus-rtu-client'
 import { WebSocketDebugClient } from '../websocket/websocket-debug-client'
 
@@ -25,6 +33,15 @@ type IDataToWrite = {
     projectData: PLCProject
     deviceConfiguration: DeviceConfiguration
     devicePinMapping: DevicePin[]
+  }
+}
+
+const assertIecDebugVariableDescriptor = (id: unknown, type: unknown): void => {
+  if (!Number.isInteger(id) || (id as number) <= 0 || (id as number) > 0xffffffff) {
+    throw new Error('Invalid IEC debug variable ID')
+  }
+  if (!Number.isInteger(type) || (type as number) <= 0 || (type as number) > 20) {
+    throw new Error('Invalid IEC debug variable type')
   }
 }
 
@@ -46,6 +63,7 @@ class MainProcessBridge implements MainIpcModule {
   private debuggerRtuBaudRate: number | null = null
   private debuggerRtuSlaveId: number | null = null
   private debuggerJwtToken: string | null = null
+  private debuggerIecSupported = false
   private runtimeCredentials: { ipAddress: string; username: string; password: string } | null = null
   private tokenRefreshInFlight: Promise<{ success: boolean; accessToken?: string; error?: string }> | null = null
 
@@ -499,6 +517,15 @@ class MainProcessBridge implements MainIpcModule {
     this.ipcMain.handle('debugger:set-variable', this.handleDebuggerSetVariable)
     this.ipcMain.handle('debugger:connect', this.handleDebuggerConnect)
     this.ipcMain.handle('debugger:disconnect', this.handleDebuggerDisconnect)
+    this.ipcMain.handle('debugger:read-iec-metadata', this.handleReadIecDebugMetadata)
+    this.ipcMain.handle('debugger:iec-capabilities', this.handleDebuggerIecCapabilities)
+    this.ipcMain.handle('debugger:iec-status', this.handleDebuggerIecStatus)
+    this.ipcMain.handle('debugger:iec-set-breakpoint', this.handleDebuggerIecSetBreakpoint)
+    this.ipcMain.handle('debugger:iec-clear-breakpoints', this.handleDebuggerIecClearBreakpoints)
+    this.ipcMain.handle('debugger:iec-resume', this.handleDebuggerIecResume)
+    this.ipcMain.handle('debugger:iec-read-variable', this.handleDebuggerIecReadVariable)
+    this.ipcMain.handle('debugger:iec-read-variables', this.handleDebuggerIecReadVariables)
+    this.ipcMain.handle('debugger:iec-modify-variable', this.handleDebuggerIecModifyVariable)
 
     // ===================== RUNTIME API =====================
     this.ipcMain.handle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
@@ -662,12 +689,12 @@ class MainProcessBridge implements MainIpcModule {
     xmlFormatTarget: 'old-editor' | 'codesys',
   ) => this.compilerModule.createXmlFile(pathToUserProject, dataToCreateXml, xmlFormatTarget)
 
-  handleRunCompileProgram = (event: IpcMainEvent, args: Array<string | ProjectState['data']>) => {
+  handleRunCompileProgram = (event: IpcMainEvent, args: Array<string | boolean | null | ProjectState['data']>) => {
     const mainProcessPort = event.ports[0]
     void this.compilerModule.compileProgram(args, mainProcessPort, this)
   }
 
-  handleRunDebugCompilation = (event: IpcMainEvent, args: Array<string | ProjectState['data']>) => {
+  handleRunDebugCompilation = (event: IpcMainEvent, args: Array<string | boolean | null | ProjectState['data']>) => {
     const mainProcessPort = event.ports[0]
     void this.compilerModule.compileForDebugger(args, mainProcessPort)
   }
@@ -1002,6 +1029,7 @@ class MainProcessBridge implements MainIpcModule {
     },
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      this.debuggerIecSupported = false
       if (this.debuggerModbusClient) {
         this.debuggerModbusClient.disconnect()
         this.debuggerModbusClient = null
@@ -1073,7 +1101,16 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
 
-  handleDebuggerDisconnect = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+  handleDebuggerDisconnect = async (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    if (this.debuggerIecSupported && this.debuggerModbusClient instanceof ModbusTcpClient) {
+      try {
+        await this.debuggerModbusClient.clearIecDebugBreakpoints()
+        const status = await this.debuggerModbusClient.getIecDebugStatus()
+        if (status.state === IecDebugState.HALTED) await this.debuggerModbusClient.continueIecDebug()
+      } catch (error) {
+        logger.warn(`Could not release IEC debugger state before disconnect: ${String(error)}`)
+      }
+    }
     if (this.debuggerModbusClient) {
       this.debuggerModbusClient.disconnect()
       this.debuggerModbusClient = null
@@ -1088,8 +1125,176 @@ class MainProcessBridge implements MainIpcModule {
     this.debuggerRtuBaudRate = null
     this.debuggerRtuSlaveId = null
     this.debuggerJwtToken = null
+    this.debuggerIecSupported = false
     this.debuggerReconnecting = false
-    return Promise.resolve({ success: true })
+    return { success: true }
+  }
+
+  handleReadIecDebugMetadata = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; data?: IecDebugMetadata; error?: string }> => {
+    try {
+      if (
+        boardTarget !== 'Eurosonic_Gen2' ||
+        isAbsolute(boardTarget) ||
+        boardTarget.includes('..') ||
+        /[\\/]/.test(boardTarget)
+      ) {
+        return { success: false, error: 'Invalid board target' }
+      }
+      const metadataPath = resolve(projectPath, 'build', boardTarget, 'src', 'program.debug.json')
+      const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as IecDebugMetadata
+      if (
+        metadata.format !== 'eurosonic-plc-debug' ||
+        metadata.version !== 1 ||
+        metadata.id_algorithm !== 'fnv1a32' ||
+        !Array.isArray(metadata.pous) ||
+        !Array.isArray(metadata.statements) ||
+        !Array.isArray(metadata.variables)
+      ) {
+        return { success: false, error: 'Unsupported IEC debug metadata format' }
+      }
+      return { success: true, data: metadata }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to read IEC debug metadata' }
+    }
+  }
+
+  private getIecDebugTcpClient(): ModbusTcpClient {
+    if (this.debuggerConnectionType !== 'tcp' || !(this.debuggerModbusClient instanceof ModbusTcpClient)) {
+      throw new Error('IEC statement debugging requires an active Modbus TCP debugger connection')
+    }
+    return this.debuggerModbusClient
+  }
+
+  handleDebuggerIecCapabilities = async (): Promise<{ success: boolean; data?: number; error?: string }> => {
+    try {
+      const data = await this.getIecDebugTcpClient().getIecDebugCapabilities()
+      this.debuggerIecSupported = true
+      return { success: true, data }
+    } catch (error) {
+      this.debuggerIecSupported = false
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecStatus = async (): Promise<{ success: boolean; data?: IecDebugStatus; error?: string }> => {
+    try {
+      const status = await this.getIecDebugTcpClient().getIecDebugStatus()
+      return {
+        success: true,
+        data: {
+          ...status,
+          pointCount: status.pointCount.toString(),
+          haltCount: status.haltCount.toString(),
+        },
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecSetBreakpoint = async (
+    _event: IpcMainInvokeEvent,
+    statementId: number,
+    enabled: boolean,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const client = this.getIecDebugTcpClient()
+      if (enabled) await client.setIecDebugBreakpoint(statementId)
+      else await client.clearIecDebugBreakpoint(statementId)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecClearBreakpoints = async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      await this.getIecDebugTcpClient().clearIecDebugBreakpoints()
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecResume = async (
+    _event: IpcMainInvokeEvent,
+    mode: 'continue' | 'step-into',
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const client = this.getIecDebugTcpClient()
+      if (mode === 'continue') await client.continueIecDebug()
+      else if (mode === 'step-into') await client.stepIntoIecDebug()
+      else return { success: false, error: `Unsupported IEC debug resume mode '${String(mode)}'` }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecReadVariable = async (
+    _event: IpcMainInvokeEvent,
+    id: number,
+    type: number,
+  ): Promise<{ success: boolean; data?: IecDebugVariableValue; error?: string }> => {
+    try {
+      assertIecDebugVariableDescriptor(id, type)
+      const variable = await this.getIecDebugTcpClient().readIecDebugVariable(id, type)
+      return { success: true, data: { ...variable, value: Array.from(variable.value) } }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecReadVariables = async (
+    _event: IpcMainInvokeEvent,
+    variables: IecDebugVariableRequest[],
+  ): Promise<{ success: boolean; data?: IecDebugVariableBatchValue[]; error?: string }> => {
+    try {
+      if (!Array.isArray(variables) || variables.length === 0 || variables.length > 24) {
+        throw new Error('IEC debug batch size must be between 1 and 24')
+      }
+      for (const variable of variables) {
+        if (!variable || typeof variable !== 'object') throw new Error('Invalid IEC debug variable descriptor')
+        assertIecDebugVariableDescriptor(variable.id, variable.type)
+      }
+      const values = await this.getIecDebugTcpClient().readIecDebugVariables(variables)
+      return {
+        success: true,
+        data: values.map((variable) => ({ ...variable, value: Array.from(variable.value) })),
+      }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecModifyVariable = async (
+    _event: IpcMainInvokeEvent,
+    operation: 'write' | 'force' | 'unforce',
+    id: number,
+    type: number,
+    value?: Uint8Array,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      assertIecDebugVariableDescriptor(id, type)
+      const client = this.getIecDebugTcpClient()
+      if (operation === 'unforce') await client.unforceIecDebugVariable(id)
+      else {
+        if (!(value instanceof Uint8Array) || value.byteLength > 238) {
+          return { success: false, error: 'Invalid IEC debug variable value' }
+        }
+        const buffer = Buffer.from(value)
+        if (operation === 'write') await client.writeIecDebugVariable(id, type, buffer)
+        else if (operation === 'force') await client.forceIecDebugVariable(id, type, buffer)
+        else return { success: false, error: `Unsupported IEC debug variable operation '${String(operation)}'` }
+      }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   handleDebuggerSetVariable = async (

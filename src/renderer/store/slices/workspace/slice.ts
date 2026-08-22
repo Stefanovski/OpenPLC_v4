@@ -26,6 +26,9 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
     debugExpandedNodes: new Map(),
     fbDebugInstances: new Map(),
     fbSelectedInstance: new Map(),
+    iecDebugMetadata: null,
+    iecDebugStatus: null,
+    iecDebugBreakpoints: new Set(),
     isPlcLogsVisible: false,
     plcLogs: '',
     close: {
@@ -146,6 +149,11 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
       setState(
         produce(({ workspace }: WorkspaceSlice) => {
           workspace.isDebuggerVisible = isVisible
+          if (!isVisible) {
+            workspace.iecDebugMetadata = null
+            workspace.iecDebugStatus = null
+            workspace.iecDebugBreakpoints = new Set()
+          }
         }),
       )
     },
@@ -218,6 +226,27 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
         produce(({ workspace }: WorkspaceSlice) => {
           workspace.fbDebugInstances = new Map()
           workspace.fbSelectedInstance = new Map()
+        }),
+      )
+    },
+    setIecDebugMetadata: (metadata): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.iecDebugMetadata = metadata
+        }),
+      )
+    },
+    setIecDebugStatus: (status): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.iecDebugStatus = status
+        }),
+      )
+    },
+    setIecDebugBreakpoints: (breakpoints): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.iecDebugBreakpoints = breakpoints
         }),
       )
     },

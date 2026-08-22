@@ -35,9 +35,10 @@ import { WorkspaceActivityBar } from '../components/_organisms/workspace-activit
 import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templates'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
-import { getVariableSize, parseVariableValue } from '../utils/variable-sizes'
+import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../utils/variable-sizes'
 
 const DEBUGGER_POLL_INTERVAL_MS = 50
+const IEC_DEBUGGER_POLL_INTERVAL_MS = 100
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
 
 const WorkspaceScreen = () => {
@@ -52,6 +53,7 @@ const WorkspaceScreen = () => {
       debugVariableIndexes,
       debugForcedVariables,
       debugExpandedNodes,
+      iecDebugMetadata,
     },
     editor,
     workspaceActions: { toggleCollapse, setDebugForcedVariables, toggleDebugExpandedNode },
@@ -162,6 +164,61 @@ const WorkspaceScreen = () => {
       isMountedRef.current = false
     }
   }, [])
+
+  useEffect(() => {
+    const { workspaceActions, consoleActions, project, deviceDefinitions } = useOpenPLCStore.getState()
+    if (!isDebuggerVisible) {
+      workspaceActions.setIecDebugMetadata(null)
+      workspaceActions.setIecDebugStatus(null)
+      return
+    }
+
+    let active = true
+    let polling = false
+    let pollingInterval: NodeJS.Timeout | null = null
+
+    const pollStatus = async () => {
+      if (!active || polling) return
+      polling = true
+      try {
+        const result = await window.bridge.debuggerGetIecStatus()
+        if (active && result.success && result.data) workspaceActions.setIecDebugStatus(result.data)
+      } finally {
+        polling = false
+      }
+    }
+
+    const start = async () => {
+      const capabilities = await window.bridge.debuggerGetIecCapabilities()
+      if (!active || !capabilities.success) return
+
+      const metadata = await window.bridge.debuggerReadIecMetadata(
+        project.meta.path,
+        deviceDefinitions.configuration.deviceBoard,
+      )
+      if (!active) return
+      if (!metadata.success || !metadata.data) {
+        consoleActions.addLog({
+          id: crypto.randomUUID(),
+          level: 'warning',
+          message: `IEC debug metadata unavailable: ${metadata.error ?? 'Unknown error'}`,
+        })
+        return
+      }
+
+      workspaceActions.setIecDebugMetadata(metadata.data)
+      await pollStatus()
+      pollingInterval = setInterval(() => void pollStatus(), IEC_DEBUGGER_POLL_INTERVAL_MS)
+    }
+
+    void start()
+    return () => {
+      active = false
+      if (pollingInterval) clearInterval(pollingInterval)
+      workspaceActions.setIecDebugMetadata(null)
+      workspaceActions.setIecDebugStatus(null)
+    }
+  }, [isDebuggerVisible])
 
   // Keep graphListRef in sync with graphList state for use in polling
   useEffect(() => {
@@ -1442,6 +1499,73 @@ const WorkspaceScreen = () => {
           newValues.set(key, value)
         })
 
+        // New STM32 debug firmware reads the watch list by stable variable ID in
+        // one bounded Modbus request.  Keep the legacy index batch as a fallback
+        // for old firmware and for registry entries not supported by format v1.
+        if (currentWorkspace.iecDebugMetadata) {
+          const descriptorByLegacyIndex = new Map(
+            currentWorkspace.iecDebugMetadata.variables.map((variable) => [variable.legacy_index, variable]),
+          )
+          const encodedSize = (type: number): number => {
+            if ([1, 2, 3, 17].includes(type)) return 1
+            if ([4, 5, 18].includes(type)) return 2
+            if ([6, 7, 10, 19].includes(type)) return 4
+            if ([8, 9, 11, 12, 13, 14, 15, 20].includes(type)) return 8
+            if (type === 16) return 127
+            return 0
+          }
+
+          let stableOffset = batchOffsetRef.current
+          if (stableOffset >= allIndexes.length) stableOffset = 0
+          const stableBatch: Array<{ id: number; type: number; legacyIndex: number }> = []
+          let responsePayloadSize = 1
+          for (let index = stableOffset; index < allIndexes.length && stableBatch.length < 24; index++) {
+            const legacyIndex = allIndexes[index]
+            const descriptor = descriptorByLegacyIndex.get(legacyIndex)
+            const valueSize = descriptor ? encodedSize(descriptor.type_code) : 0
+            if (!descriptor || valueSize === 0 || responsePayloadSize + 9 + valueSize > 245) break
+            stableBatch.push({ id: descriptor.id, type: descriptor.type_code, legacyIndex })
+            responsePayloadSize += 9 + valueSize
+          }
+
+          if (stableBatch.length > 0) {
+            const stableResult = await window.bridge.debuggerReadIecVariables(
+              stableBatch.map(({ id, type }) => ({ id, type })),
+            )
+            if (!stableResult.success || !stableResult.data) {
+              throw new Error(stableResult.error ?? 'Stable IEC watch read failed')
+            }
+
+            const requestById = new Map(stableBatch.map((variable) => [variable.id, variable]))
+            const nextForcedVariables = new Map(currentWorkspace.debugForcedVariables)
+            for (const valueResult of stableResult.data) {
+              const request = requestById.get(valueResult.id)
+              const varInfos = request ? variableInfoMapRef.current?.get(request.legacyIndex) : undefined
+              if (!request || valueResult.type !== request.type || !varInfos || varInfos.length === 0) {
+                throw new Error(`Invalid stable IEC watch response for variable ${valueResult.id}`)
+              }
+
+              const { value } = parseVariableValue(new Uint8Array(valueResult.value), 0, varInfos[0].variable)
+              for (const varInfo of varInfos) {
+                const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
+                newValues.set(compositeKey, value)
+                if (valueResult.forced) {
+                  if (!nextForcedVariables.has(compositeKey)) nextForcedVariables.set(compositeKey, true)
+                } else {
+                  nextForcedVariables.delete(compositeKey)
+                }
+              }
+            }
+
+            batchOffsetRef.current = (stableOffset + stableResult.data.length) % allIndexes.length
+            if (isMountedRef.current) {
+              workspaceActions.setDebugVariableValues(newValues)
+              workspaceActions.setDebugForcedVariables(nextForcedVariables)
+            }
+            return
+          }
+        }
+
         let currentBatchSize = batchSize
 
         // Clamp batchOffset to valid range (handles list size changes between cycles)
@@ -1717,9 +1841,15 @@ const WorkspaceScreen = () => {
       return
     }
 
+    const stableVariable = useOpenPLCStore
+      .getState()
+      .workspace.iecDebugMetadata?.variables.find((variable) => variable.legacy_index === variableIndex)
+
     if (value === undefined && valueBuffer === undefined) {
       // Release force
-      const result = await window.bridge.debuggerSetVariable(variableIndex, false)
+      const result = stableVariable
+        ? await window.bridge.debuggerModifyIecVariable('unforce', stableVariable.id, stableVariable.type_code)
+        : await window.bridge.debuggerSetVariable(variableIndex, false)
       if (result.success) {
         const newForcedVariables = new Map(Array.from(debugForcedVariables))
         newForcedVariables.delete(compositeKey)
@@ -1728,13 +1858,44 @@ const WorkspaceScreen = () => {
     } else {
       // Set force - use valueBuffer for non-boolean types, fallback to boolean conversion
       const buffer = valueBuffer ?? new Uint8Array([value ? 1 : 0])
-      const result = await window.bridge.debuggerSetVariable(variableIndex, true, buffer)
+      const result = stableVariable
+        ? await window.bridge.debuggerModifyIecVariable(
+            'force',
+            stableVariable.id,
+            stableVariable.type_code,
+            toNativeIecDebugValue(buffer, stableVariable.type_code),
+          )
+        : await window.bridge.debuggerSetVariable(variableIndex, true, buffer)
       if (result.success) {
         const newForcedVariables = new Map(Array.from(debugForcedVariables))
         newForcedVariables.set(compositeKey, value ?? true)
         setDebugForcedVariables(newForcedVariables)
       }
     }
+  }
+
+  const handleWriteVariable = async (
+    compositeKey: string,
+    _variableType: string,
+    value?: boolean,
+    valueBuffer?: Uint8Array,
+    lookupKey?: string,
+  ): Promise<void> => {
+    const variableIndex = debugVariableIndexes.get(lookupKey ?? compositeKey)
+    const stableVariable = iecDebugMetadata?.variables.find((variable) => variable.legacy_index === variableIndex)
+    if (variableIndex === undefined || !stableVariable) {
+      console.warn(`[IEC Debugger] No stable writable variable found for ${lookupKey ?? compositeKey}`)
+      return
+    }
+
+    const buffer = valueBuffer ?? new Uint8Array([value ? 1 : 0])
+    const result = await window.bridge.debuggerModifyIecVariable(
+      'write',
+      stableVariable.id,
+      stableVariable.type_code,
+      toNativeIecDebugValue(buffer, stableVariable.type_code),
+    )
+    if (!result.success) console.warn(`[IEC Debugger] Write failed for ${compositeKey}: ${result.error}`)
   }
   return (
     <div className='flex h-full w-full bg-brand-dark dark:bg-neutral-950'>
@@ -1954,6 +2115,7 @@ const WorkspaceScreen = () => {
                               onToggleExpandedNode={toggleDebugExpandedNode}
                               isDebuggerVisible={isDebuggerVisible}
                               onForceVariable={handleForceVariable}
+                              onWriteVariable={iecDebugMetadata ? handleWriteVariable : undefined}
                             />
                           </ResizablePanel>
                           <ResizableHandle className='w-2 bg-transparent' />

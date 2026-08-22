@@ -6,6 +6,73 @@ export enum ModbusFunctionCode {
   DEBUG_GET = 0x43,
   DEBUG_GET_LIST = 0x44,
   DEBUG_GET_MD5 = 0x45,
+  IEC_DEBUG = 0x46,
+}
+
+export enum IecDebugCommand {
+  CAPABILITIES = 0,
+  STATUS = 1,
+  SET_BREAKPOINT = 2,
+  CLEAR_BREAKPOINT = 3,
+  CLEAR_BREAKPOINTS = 4,
+  CONTINUE = 5,
+  STEP_INTO = 6,
+  STEP_OVER = 7,
+  STEP_OUT = 8,
+  READ_VARIABLE = 9,
+  WRITE_VARIABLE = 10,
+  FORCE_VARIABLE = 11,
+  UNFORCE_VARIABLE = 12,
+  READ_VARIABLES = 13,
+}
+
+export enum IecDebugResult {
+  OK = 0,
+  INVALID_ARGUMENT = 1,
+  NOT_FOUND = 2,
+  TABLE_FULL = 3,
+  INVALID_STATE = 4,
+  TYPE_MISMATCH = 5,
+  SIZE_MISMATCH = 6,
+  READ_ONLY = 7,
+  FORCED = 8,
+  UNSUPPORTED = 9,
+  BUSY = 10,
+  PROTOCOL_ERROR = 11,
+}
+
+export enum IecDebugState {
+  RUN = 0,
+  HALTED = 1,
+  STEP_INTO = 2,
+  STEP_OVER = 3,
+  STEP_OUT = 4,
+}
+
+export type IecDebugStatus = {
+  state: IecDebugState
+  currentStatementId: number
+  currentPouId: number
+  currentInstanceId: number
+  breakpointCount: number
+  breakpointCapacity: number
+  pointCount: bigint
+  haltCount: bigint
+}
+
+export type IecDebugVariableValue = {
+  forced: boolean
+  type: number
+  value: Buffer
+}
+
+export type IecDebugVariableRequest = {
+  id: number
+  type: number
+}
+
+export type IecDebugVariableBatchValue = IecDebugVariableValue & {
+  id: number
 }
 
 export enum ModbusDebugResponse {
@@ -21,6 +88,7 @@ interface ModbusTcpClientOptions {
 }
 
 export class ModbusTcpClient {
+  private static readonly IEC_DEBUG_PROTOCOL_VERSION = 1
   private host: string
   private port: number
   private timeout: number
@@ -107,6 +175,147 @@ export class ModbusTcpClient {
         () => this.sendTcpRequestImpl(request).then(resolve, reject),
       )
     })
+  }
+
+  private async sendIecDebugCommand(command: IecDebugCommand, payload = Buffer.alloc(0)): Promise<Buffer> {
+    if (!this.socket) throw new Error('Not connected to target')
+    const transactionId = this.incrementTransactionId()
+    const request = Buffer.alloc(10 + payload.length)
+    request.writeUInt16BE(transactionId, 0)
+    request.writeUInt16BE(0, 2)
+    request.writeUInt16BE(request.length - 6, 4)
+    request.writeUInt8(0, 6)
+    request.writeUInt8(ModbusFunctionCode.IEC_DEBUG, 7)
+    request.writeUInt8(ModbusTcpClient.IEC_DEBUG_PROTOCOL_VERSION, 8)
+    request.writeUInt8(command, 9)
+    for (let index = 0; index < payload.length; index++) request[10 + index] = payload[index]
+
+    const response = await this.sendTcpRequest(request)
+    if (response.length < 11) throw new Error(`Invalid IEC debug response length ${response.length}`)
+    if (response.readUInt16BE(0) !== transactionId) throw new Error('IEC debug transaction ID mismatch')
+    if ((response.readUInt8(7) as ModbusFunctionCode) !== ModbusFunctionCode.IEC_DEBUG) {
+      throw new Error('IEC debug function code mismatch')
+    }
+    if (response.readUInt8(8) !== ModbusTcpClient.IEC_DEBUG_PROTOCOL_VERSION) {
+      throw new Error(`Unsupported IEC debug protocol version ${response.readUInt8(8)}`)
+    }
+    if ((response.readUInt8(9) as IecDebugCommand) !== command) throw new Error('IEC debug command mismatch')
+    const result = response.readUInt8(10) as IecDebugResult
+    if (result !== IecDebugResult.OK) throw new Error(`IEC debug command ${command} failed: ${IecDebugResult[result]}`)
+    return response.subarray(11)
+  }
+
+  async getIecDebugCapabilities(): Promise<number> {
+    const payload = await this.sendIecDebugCommand(IecDebugCommand.CAPABILITIES)
+    if (payload.length !== 4) throw new Error('Invalid IEC debug capabilities response')
+    return payload.readUInt32BE(0)
+  }
+
+  async getIecDebugStatus(): Promise<IecDebugStatus> {
+    const payload = await this.sendIecDebugCommand(IecDebugCommand.STATUS)
+    if (payload.length !== 33) throw new Error('Invalid IEC debug status response')
+    return {
+      state: payload.readUInt8(0) as IecDebugState,
+      currentStatementId: payload.readUInt32BE(1),
+      currentPouId: payload.readUInt32BE(5),
+      currentInstanceId: payload.readUInt32BE(9),
+      breakpointCount: payload.readUInt16BE(13),
+      breakpointCapacity: payload.readUInt16BE(15),
+      pointCount: payload.readBigUInt64BE(17),
+      haltCount: payload.readBigUInt64BE(25),
+    }
+  }
+
+  async setIecDebugBreakpoint(statementId: number): Promise<void> {
+    const payload = Buffer.alloc(4)
+    payload.writeUInt32BE(statementId, 0)
+    await this.sendIecDebugCommand(IecDebugCommand.SET_BREAKPOINT, payload)
+  }
+
+  async clearIecDebugBreakpoint(statementId: number): Promise<void> {
+    const payload = Buffer.alloc(4)
+    payload.writeUInt32BE(statementId, 0)
+    await this.sendIecDebugCommand(IecDebugCommand.CLEAR_BREAKPOINT, payload)
+  }
+
+  async clearIecDebugBreakpoints(): Promise<void> {
+    await this.sendIecDebugCommand(IecDebugCommand.CLEAR_BREAKPOINTS)
+  }
+
+  async continueIecDebug(): Promise<void> {
+    await this.sendIecDebugCommand(IecDebugCommand.CONTINUE)
+  }
+
+  async stepIntoIecDebug(): Promise<void> {
+    await this.sendIecDebugCommand(IecDebugCommand.STEP_INTO)
+  }
+
+  async readIecDebugVariable(id: number, type: number): Promise<IecDebugVariableValue> {
+    const request = Buffer.alloc(6)
+    request.writeUInt32BE(id, 0)
+    request.writeUInt16BE(type, 4)
+    const payload = await this.sendIecDebugCommand(IecDebugCommand.READ_VARIABLE, request)
+    if (payload.length < 5) throw new Error('Invalid IEC debug variable response')
+    const size = payload.readUInt16BE(3)
+    if (payload.length !== size + 5) throw new Error('Incomplete IEC debug variable value')
+    return { forced: payload.readUInt8(0) !== 0, type: payload.readUInt16BE(1), value: payload.subarray(5) }
+  }
+
+  async readIecDebugVariables(variables: IecDebugVariableRequest[]): Promise<IecDebugVariableBatchValue[]> {
+    if (variables.length === 0 || variables.length > 24)
+      throw new Error('IEC debug batch size must be between 1 and 24')
+    const request = Buffer.alloc(1 + variables.length * 6)
+    request.writeUInt8(variables.length, 0)
+    variables.forEach((variable, index) => {
+      const offset = 1 + index * 6
+      request.writeUInt32BE(variable.id, offset)
+      request.writeUInt16BE(variable.type, offset + 4)
+    })
+
+    const payload = await this.sendIecDebugCommand(IecDebugCommand.READ_VARIABLES, request)
+    if (payload.length < 1 || payload.readUInt8(0) !== variables.length) {
+      throw new Error('Invalid IEC debug batch response count')
+    }
+
+    const values: IecDebugVariableBatchValue[] = []
+    let offset = 1
+    for (let index = 0; index < variables.length; index++) {
+      if (offset + 9 > payload.length) throw new Error('Incomplete IEC debug batch descriptor')
+      const size = payload.readUInt16BE(offset + 7)
+      if (offset + 9 + size > payload.length) throw new Error('Incomplete IEC debug batch value')
+      values.push({
+        id: payload.readUInt32BE(offset),
+        forced: payload.readUInt8(offset + 4) !== 0,
+        type: payload.readUInt16BE(offset + 5),
+        value: payload.subarray(offset + 9, offset + 9 + size),
+      })
+      offset += 9 + size
+    }
+    if (offset !== payload.length) throw new Error('Unexpected trailing IEC debug batch data')
+    return values
+  }
+
+  private async modifyIecDebugVariable(command: IecDebugCommand, id: number, type: number, value: Buffer) {
+    const payload = Buffer.alloc(8 + value.length)
+    payload.writeUInt32BE(id, 0)
+    payload.writeUInt16BE(type, 4)
+    payload.writeUInt16BE(value.length, 6)
+    for (let index = 0; index < value.length; index++) payload[8 + index] = value[index]
+    await this.sendIecDebugCommand(command, payload)
+  }
+
+  async writeIecDebugVariable(id: number, type: number, value: Buffer): Promise<void> {
+    await this.modifyIecDebugVariable(IecDebugCommand.WRITE_VARIABLE, id, type, value)
+  }
+
+  async forceIecDebugVariable(id: number, type: number, value: Buffer): Promise<void> {
+    await this.modifyIecDebugVariable(IecDebugCommand.FORCE_VARIABLE, id, type, value)
+  }
+
+  async unforceIecDebugVariable(id: number): Promise<void> {
+    const payload = Buffer.alloc(4)
+    payload.writeUInt32BE(id, 0)
+    await this.sendIecDebugCommand(IecDebugCommand.UNFORCE_VARIABLE, payload)
   }
 
   async getMd5Hash(): Promise<string> {

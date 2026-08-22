@@ -199,6 +199,31 @@
   background-color: #388e3c;
 }
 
+.oplc-monaco-wrapper .iec-debug-breakpoint-glyph::before {
+  content: '';
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 2px auto 0;
+  border-radius: 9999px;
+  background: #dc2626;
+}
+
+.oplc-monaco-wrapper .iec-debug-current-glyph::before {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 3px auto 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid #d97706;
+}
+
+.oplc-monaco-wrapper .iec-debug-current-line {
+  background: rgb(245 158 11 / 18%);
+}
+
 /* Ensure Radix popper/select content sits well above Monaco */
 [data-radix-popper-content-wrapper],
 [data-radix-select-content],

@@ -2,6 +2,13 @@
 import { CreatePouFileProps, PouServiceResponse } from '@root/types/IPC/pou-service'
 import { CreateProjectFileProps, IProjectServiceResponse } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
+import type {
+  IecDebugMetadata,
+  IecDebugStatus,
+  IecDebugVariableBatchValue,
+  IecDebugVariableRequest,
+  IecDebugVariableValue,
+} from '@root/types/PLC/iec-debug'
 import { ipcRenderer, IpcRendererEvent } from 'electron'
 
 import { ProjectState } from '../../../renderer/store/slices'
@@ -154,7 +161,7 @@ const rendererProcessBridge = {
     // Set up the renderer process port to listen for messages from the main process
   },
 
-  runDebugCompilation: (compileArgs: Array<string | ProjectState['data']>, callback: (args: any) => void) => {
+  runDebugCompilation: (compileArgs: Array<string | boolean | ProjectState['data']>, callback: (args: any) => void) => {
     const { port1: rendererProcessPort, port2: mainProcessPort } = new MessageChannel()
     ipcRenderer.postMessage('compiler:run-debug-compilation', compileArgs, [mainProcessPort])
     rendererProcessPort.onmessage = (event) => callback(event.data)
@@ -290,6 +297,46 @@ const rendererProcessBridge = {
     ipcRenderer.invoke('debugger:connect', connectionType, connectionParams),
 
   debuggerDisconnect: (): Promise<{ success: boolean }> => ipcRenderer.invoke('debugger:disconnect'),
+
+  debuggerReadIecMetadata: (
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; data?: IecDebugMetadata; error?: string }> =>
+    ipcRenderer.invoke('debugger:read-iec-metadata', projectPath, boardTarget),
+
+  debuggerGetIecCapabilities: (): Promise<{ success: boolean; data?: number; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-capabilities'),
+
+  debuggerGetIecStatus: (): Promise<{ success: boolean; data?: IecDebugStatus; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-status'),
+
+  debuggerSetIecBreakpoint: (statementId: number, enabled: boolean): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-set-breakpoint', statementId, enabled),
+
+  debuggerClearIecBreakpoints: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-clear-breakpoints'),
+
+  debuggerResumeIec: (mode: 'continue' | 'step-into'): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-resume', mode),
+
+  debuggerReadIecVariable: (
+    id: number,
+    type: number,
+  ): Promise<{ success: boolean; data?: IecDebugVariableValue; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-read-variable', id, type),
+
+  debuggerReadIecVariables: (
+    variables: IecDebugVariableRequest[],
+  ): Promise<{ success: boolean; data?: IecDebugVariableBatchValue[]; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-read-variables', variables),
+
+  debuggerModifyIecVariable: (
+    operation: 'write' | 'force' | 'unforce',
+    id: number,
+    type: number,
+    value?: Uint8Array,
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-modify-variable', operation, id, type, value),
 
   // ===================== RUNTIME API METHODS =====================
   runtimeGetUsersInfo: (ipAddress: string): Promise<{ hasUsers: boolean; error?: string }> =>
