@@ -262,13 +262,14 @@ const SelectableTypeCell = ({
             />
           )
         })()}
-      {language !== 'python' && language !== 'cpp' && (
+      {language !== 'python' && (
         <ArrayModal
           variableName={variableName}
           VariableRow={index}
           arrayModalIsOpen={arrayModalIsOpen}
           setArrayModalIsOpen={setArrayModalIsOpen}
           closeContainer={() => setPoppoverIsOpen(false)}
+          language={language}
         />
       )}
       <PrimitiveDropdown.Root onOpenChange={setPoppoverIsOpen} open={poppoverIsOpen}>
@@ -360,7 +361,7 @@ const SelectableTypeCell = ({
               )
             })}
 
-            {language !== 'python' && language !== 'cpp' && (
+            {language !== 'python' && (
               <PrimitiveDropdown.Item
                 onSelect={() => {
                   setArrayModalIsOpen(true)
