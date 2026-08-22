@@ -60,6 +60,41 @@ function buildVariableBasePath(variableName: string, instanceName: string, varia
 }
 
 /**
+ * Resolve a child path against the names emitted by xml2st.
+ *
+ * Depending on the compiler version, structures may be represented either as
+ * `PARENT.FIELD` (function-block style) or `PARENT.value.FIELD` (structure
+ * style). Prefer the path that is present in debug.c and retain the caller's
+ * expected style only when no matching leaf or descendant exists.
+ */
+function resolveDebugFieldPath(
+  debugVariables: DebugVariable[],
+  parentPath: string,
+  fieldName: string,
+  fallbackStyle: 'function-block' | 'structure',
+  allowDescendants: boolean,
+): string {
+  const fieldNameUpper = fieldName.toUpperCase()
+  const functionBlockPath = `${parentPath}.${fieldNameUpper}`
+  const structurePath = `${parentPath}.value.${fieldNameUpper}`
+
+  const hasPath = (candidate: string) => {
+    const normalizedCandidate = candidate.toUpperCase()
+    return debugVariables.some((variable) => {
+      const normalizedName = variable.name.toUpperCase()
+      return (
+        normalizedName === normalizedCandidate ||
+        (allowDescendants && normalizedName.startsWith(`${normalizedCandidate}.`))
+      )
+    })
+  }
+
+  if (hasPath(functionBlockPath)) return functionBlockPath
+  if (hasPath(structurePath)) return structurePath
+  return fallbackStyle === 'structure' ? structurePath : functionBlockPath
+}
+
+/**
  * Builds a debug tree structure for a PLC variable.
  * Recursively processes complex types (arrays, structs, function blocks).
  *
@@ -183,7 +218,13 @@ function buildFunctionBlockTree(
       )
     }
 
-    const childFullPath = `${fullPath}.${fbVar.name.toUpperCase()}`
+    const childFullPath = resolveDebugFieldPath(
+      debugVariables,
+      fullPath,
+      fbVar.name,
+      'function-block',
+      fbVar.type.definition !== 'base-type',
+    )
     const childCompositeKey = `${compositeKey}.${fbVar.name}`
 
     if (fbVar.type.definition === 'base-type') {
@@ -345,7 +386,13 @@ function expandNestedNode(
     const children: DebugTreeNode[] = []
 
     for (const fbVar of fbDefinition.variables) {
-      const childFullPath = `${fullPath}.${fbVar.name.toUpperCase()}`
+      const childFullPath = resolveDebugFieldPath(
+        debugVariables,
+        fullPath,
+        fbVar.name,
+        'function-block',
+        fbVar.type.definition !== 'base-type',
+      )
       const childCompositeKey = `${compositeKey}.${fbVar.name}`
 
       if (fbVar.type.definition === 'base-type') {
@@ -423,7 +470,13 @@ function expandNestedNode(
     const children: DebugTreeNode[] = []
 
     for (const structVar of structType.variable) {
-      const fieldFullPath = `${fullPath}.value.${structVar.name.toUpperCase()}`
+      const fieldFullPath = resolveDebugFieldPath(
+        debugVariables,
+        fullPath,
+        structVar.name,
+        'structure',
+        structVar.type.definition !== 'base-type',
+      )
       const fieldCompositeKey = `${compositeKey}.${structVar.name}`
 
       if (structVar.type.definition === 'base-type') {
@@ -685,7 +738,13 @@ function buildStructTree(
   const children: DebugTreeNode[] = []
 
   for (const structVar of structType.variable) {
-    const fieldFullPath = `${fullPath}.value.${structVar.name.toUpperCase()}`
+    const fieldFullPath = resolveDebugFieldPath(
+      debugVariables,
+      fullPath,
+      structVar.name,
+      'structure',
+      structVar.type.definition !== 'base-type',
+    )
     const fieldCompositeKey = `${compositeKey}.${structVar.name}`
 
     if (structVar.type.definition === 'base-type') {
