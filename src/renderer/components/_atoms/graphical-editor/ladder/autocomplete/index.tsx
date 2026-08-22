@@ -129,9 +129,14 @@ const VariablesBlockAutoComplete = forwardRef<HTMLDivElement, VariablesBlockAuto
       const relatedBlock = rung.nodes.find((node) => node.id === (variableNode as VariableNode).data.block.id)
       if (!relatedBlock) return
 
+      const existingConnectedVariables = Array.isArray(
+        (relatedBlock.data as BlockNodeData<BlockVariant>).connectedVariables,
+      )
+        ? (relatedBlock.data as BlockNodeData<BlockVariant>).connectedVariables
+        : []
       // Update the block to include the variable
       const connectedVariables: LadderBlockConnectedVariables = [
-        ...(relatedBlock.data as BlockNodeData<BlockVariant>).connectedVariables.filter(
+        ...existingConnectedVariables.filter(
           (v) =>
             v.type !== variableNode.data.variant || v.handleId !== (variableNode as VariableNode).data.block.handleId,
         ),

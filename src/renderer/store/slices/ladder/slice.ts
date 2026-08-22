@@ -6,7 +6,7 @@ import { produce } from 'immer'
 import { StateCreator } from 'zustand'
 
 import { LadderFlowSlice, LadderFlowState } from './types'
-import { duplicateLadderRung } from './utils'
+import { duplicateLadderRung, normalizeConnectedVariables } from './utils'
 
 export const createLadderFlowSlice: StateCreator<LadderFlowSlice, [], [], LadderFlowSlice> = (setState) => ({
   ladderFlows: [],
@@ -19,11 +19,31 @@ export const createLadderFlowSlice: StateCreator<LadderFlowSlice, [], [], Ladder
       setState(
         produce(({ ladderFlows }: LadderFlowState) => {
           const flowIndex = ladderFlows.findIndex((f) => f.name === flow.name)
+          const needsMigration = flow.rungs.some((rung) =>
+            rung.nodes.some((node) => {
+              if (node.type !== 'block') return false
+              const connectedVariables = (node.data as { connectedVariables?: unknown }).connectedVariables
+              return connectedVariables !== undefined && !Array.isArray(connectedVariables)
+            }),
+          )
           const rungs = flow.rungs.map((rung) => ({
             ...rung,
             selectedNodes: [],
+            nodes: rung.nodes.map((node) =>
+              node.type === 'block'
+                ? {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      connectedVariables: normalizeConnectedVariables(
+                        (node.data as { connectedVariables?: unknown }).connectedVariables,
+                      ),
+                    },
+                  }
+                : node,
+            ),
           }))
-          const newFlow = { ...flow, rungs }
+          const newFlow = { ...flow, rungs, updated: flow.updated || needsMigration }
 
           if (flowIndex === -1) {
             ladderFlows.push(newFlow)

@@ -6,6 +6,36 @@ import { ZodLiteral } from 'zod'
 import { BlockVariant } from '../ladder/block'
 import { BlockVariant as newBlockVariant } from '../types/block'
 
+type GenericTypeKey = keyof typeof genericTypeSchema.shape
+
+const flattenGenericToBaseTypes = (genericName: string, visited: Set<string> = new Set()): string[] => {
+  const key = genericName.toUpperCase()
+  if (visited.has(key)) return []
+  visited.add(key)
+
+  const generic = genericTypeSchema.shape[key as GenericTypeKey] as { options?: unknown[] } | undefined
+  if (!generic?.options) return []
+
+  const result: string[] = []
+  generic.options.forEach((option) => {
+    if (typeof option === 'string') {
+      result.push(option.toUpperCase())
+      return
+    }
+
+    if (!(option instanceof ZodLiteral) || typeof option.value !== 'string') return
+
+    if (option.value.startsWith('ANY_')) {
+      result.push(...flattenGenericToBaseTypes(option.value, visited))
+      return
+    }
+
+    result.push(option.value.toUpperCase())
+  })
+
+  return Array.from(new Set(result))
+}
+
 export const getVariableByName = (variables: PLCVariable[], name: string): PLCVariable | undefined => {
   const exact = variables.find((variable) => variable.name === name && variable.type.definition !== 'derived')
   if (exact) return exact
@@ -60,37 +90,10 @@ export const validateVariableType = (
 
   // Handle generic types
   if (upperExpectedType.includes('ANY_')) {
-    const validTypes = genericTypeSchema.shape[upperExpectedType as keyof typeof genericTypeSchema.shape].options
-    if (validTypes.length > 1) {
-      const subValues: string[] = []
-      validTypes.forEach((value) => {
-        if (typeof value === 'string') {
-          subValues.push(value.toLowerCase())
-          return
-        }
-
-        if (value instanceof ZodLiteral) {
-          ;(genericTypeSchema.shape[value.value as keyof typeof genericTypeSchema.shape].options as string[]).forEach(
-            (subValue) => {
-              subValues.push(subValue.toLowerCase())
-            },
-          )
-          return
-        }
-      })
-
-      return {
-        isValid: subValues.includes(upperSelectedType.toLowerCase()),
-        error: subValues.includes(upperSelectedType.toLowerCase())
-          ? undefined
-          : `Expected one of: ${subValues.join(', ')}`,
-      }
-    }
+    const validTypes = flattenGenericToBaseTypes(upperExpectedType)
     return {
-      isValid: Object.values(validTypes).includes(upperSelectedType),
-      error: Object.values(validTypes).includes(upperSelectedType)
-        ? undefined
-        : `Expected one of: ${Object.values(validTypes).join(', ')}`,
+      isValid: validTypes.includes(upperSelectedType),
+      error: validTypes.includes(upperSelectedType) ? undefined : `Expected one of: ${validTypes.join(', ')}`,
     }
   }
 
@@ -111,31 +114,9 @@ export const getVariableRestrictionType = (variableType: string) => {
   }
 
   if (variableType.includes('ANY_')) {
-    const values = genericTypeSchema.shape[variableType as keyof typeof genericTypeSchema.shape].options
-    if (values.length > 1) {
-      const subValues: string[] = []
-      values.forEach((value) => {
-        if (typeof value === 'string') {
-          subValues.push(value.toLowerCase())
-          return
-        }
-
-        if (value instanceof ZodLiteral) {
-          ;(genericTypeSchema.shape[value.value as keyof typeof genericTypeSchema.shape].options as string[]).forEach(
-            (subValue) => {
-              subValues.push(subValue.toLowerCase())
-            },
-          )
-          return
-        }
-      })
-      return {
-        values: subValues,
-        definition: 'base-type',
-      }
-    }
+    const values = flattenGenericToBaseTypes(variableType)
     return {
-      values: (values as string[]).map((value) => value.toLowerCase()),
+      values: values.map((value) => value.toLowerCase()),
       definition: 'base-type',
     }
   }
