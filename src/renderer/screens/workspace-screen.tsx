@@ -597,7 +597,7 @@ const WorkspaceScreen = () => {
           }
 
           if (variablesToProcess) {
-            const debugPathPrefix = buildDebugPath(programInstance.name, udtVar.name)
+            const debugPathPrefix = `RES0__${programInstance.name.toUpperCase()}.${udtVar.name.toUpperCase()}`
             const variableNamePrefix = udtVar.name
             processNestedVariables(variablesToProcess, pou.data.name, debugPathPrefix, variableNamePrefix)
           }
