@@ -1,5 +1,6 @@
 import type { DebugTreeNode } from '@root/types/debugger'
 import type { PLCProject, PLCVariable } from '@root/types/PLC/open-plc'
+import { parseDimensionRange } from '@root/utils/PLC/array-variable-utils'
 
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import type { DebugVariable } from './parse-debug-file'
@@ -537,9 +538,9 @@ function expandNestedNode(
     }
 
     const firstDimension = dimensions[0].dimension
-    const dimensionMatch = firstDimension.match(/^(\d+)\.\.(\d+)$/)
+    const range = parseDimensionRange(firstDimension)
 
-    if (!dimensionMatch) {
+    if (!range) {
       return {
         name,
         fullPath,
@@ -549,8 +550,8 @@ function expandNestedNode(
       }
     }
 
-    const startIndex = parseInt(dimensionMatch[1], 10)
-    const endIndex = parseInt(dimensionMatch[2], 10)
+    const startIndex = range.lower
+    const endIndex = range.upper
     const arraySize = endIndex - startIndex + 1
 
     const baseType = arrayData.baseType
@@ -638,14 +639,14 @@ function buildArrayTree(
   }
 
   const firstDimension = dimensions[0].dimension
-  const dimensionMatch = firstDimension.match(/^(\d+)\.\.(\d+)$/)
+  const range = parseDimensionRange(firstDimension)
 
-  if (!dimensionMatch) {
+  if (!range) {
     throw new Error(`Invalid array dimension format: ${firstDimension}`)
   }
 
-  const startIndex = parseInt(dimensionMatch[1], 10)
-  const endIndex = parseInt(dimensionMatch[2], 10)
+  const startIndex = range.lower
+  const endIndex = range.upper
   const arraySize = endIndex - startIndex + 1
 
   const baseType = variable.type.data.baseType
