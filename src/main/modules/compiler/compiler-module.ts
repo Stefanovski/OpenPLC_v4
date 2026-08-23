@@ -1,4 +1,5 @@
 import { exec, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -26,13 +27,16 @@ import * as tftp from 'tftp'
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import {
   bindIecDebugVariablesToInstances,
+  buildGraphicalDebugBindings,
   enrichIecDebugMetadata,
   IEC_DEBUG_METADATA_FILE,
   IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
   parseIecDebugInstances,
   parseIecDebugVariables,
+  parseXml2stSourceMap,
   prepareProjectForIecDebug,
   renderIecDebugVariableAdapter,
+  XML2ST_SOURCE_MAP_FILE,
 } from './iec-debug'
 import { FormatMacAddress } from './utils/formatters'
 
@@ -582,14 +586,20 @@ class CompilerModule {
     await rm(join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE), { force: true })
   }
 
-  async finalizeIecDebugArtifacts(sourceTargetFolderPath: string) {
+  async finalizeIecDebugArtifacts(sourceTargetFolderPath: string, projectData: ProjectState['data']) {
     const metadataPath = join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE)
     const variablesPath = join(sourceTargetFolderPath, 'VARIABLES.csv')
     const debugSourcePath = join(sourceTargetFolderPath, 'debug.c')
-    const [metadataJson, variablesCsv, debugSource] = await Promise.all([
+    const programStPath = join(sourceTargetFolderPath, 'program.st')
+    const sourceMapPath = join(sourceTargetFolderPath, XML2ST_SOURCE_MAP_FILE)
+    const projectXmlPath = join(sourceTargetFolderPath, 'plc.xml')
+    const [metadataJson, variablesCsv, debugSource, programSt, sourceMapJson, projectXml] = await Promise.all([
       readFile(metadataPath, 'utf8'),
       readFile(variablesPath, 'utf8'),
       readFile(debugSourcePath, 'utf8'),
+      readFile(programStPath, 'utf8'),
+      readFile(sourceMapPath, 'utf8'),
+      readFile(projectXmlPath, 'utf8'),
     ])
     if (debugSource.includes(IEC_DEBUG_VARIABLE_ADAPTER_MARKER)) {
       throw new Error('IEC debug variable adapter was generated more than once')
@@ -599,8 +609,26 @@ class CompilerModule {
     }
     const instances = parseIecDebugInstances(variablesCsv, parsedMetadata.pous)
     const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv), instances)
+    const sourceMap = parseXml2stSourceMap(sourceMapJson, projectXml, programSt)
+    const graphicalBindings = buildGraphicalDebugBindings(
+      projectData,
+      JSON.parse(metadataJson) as Parameters<typeof buildGraphicalDebugBindings>[1],
+      sourceMap,
+    )
+    const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+    const sourceIdentity = {
+      schema_version: 1 as const,
+      project_sha256: sourceMap.project_sha256,
+      st_sha256: sourceMap.st_sha256,
+      source_map_sha256: digest(sourceMapJson),
+      matiec_debug_sha256: digest(metadataJson),
+    }
     await Promise.all([
-      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables, instances), 'utf8'),
+      writeFile(
+        metadataPath,
+        enrichIecDebugMetadata(metadataJson, variables, instances, graphicalBindings, sourceIdentity),
+        'utf8',
+      ),
       writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables, instances)}`, 'utf8'),
     ])
   }
@@ -1408,6 +1436,12 @@ class CompilerModule {
 
         const putStream = client.createPutStream(remoteName, { size: binarySize })
 
+        const completeUpload = () => {
+          if (settled) return
+          handleOutputData('TFTP Upload successful!', 'info')
+          complete()
+        }
+
         const uploadTimeout = setTimeout(() => {
           const timeoutSeconds = CompilerModule.TFTP_UPLOAD_TIMEOUT_MS / 1000
           const timeoutError = new Error(`TFTP upload timed out after ${timeoutSeconds} seconds`)
@@ -1423,9 +1457,14 @@ class CompilerModule {
         })
         putStream.once('error', (error: Error) => complete(error))
         putStream.once('abort', () => complete(new Error('TFTP upload was aborted')))
-        putStream.once('finish', () => {
-          handleOutputData('TFTP Upload successful!', 'info')
-          complete()
+        putStream.once('finish', completeUpload)
+        putStream.once('close', () => {
+          // tftp@0.1.2 closes its UDP socket after the final ACK, but with current
+          // Node.js versions the manually emitted close event can suppress the
+          // Writable stream's finish event. Error and abort are emitted directly
+          // after close, so defer the success decision until those events had a
+          // chance to settle the transfer first.
+          setImmediate(completeUpload)
         })
 
         readStream.pipe(putStream)
@@ -2504,7 +2543,7 @@ class CompilerModule {
         await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
           _mainProcessPort.postMessage({ logLevel, message: data })
         })
-        if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
+        if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath, projectData)
       } catch (error) {
         _mainProcessPort.postMessage({
           logLevel: 'error',
@@ -2869,7 +2908,7 @@ class CompilerModule {
       await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
         _mainProcessPort.postMessage({ logLevel, message: data })
       })
-      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
+      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath, projectData)
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',

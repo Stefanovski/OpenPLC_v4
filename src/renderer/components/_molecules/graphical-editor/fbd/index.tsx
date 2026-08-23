@@ -1,6 +1,7 @@
 import { useDebugCompositeKey } from '@hooks/use-debug-composite-key'
 import { CustomFbdNodeTypes, customNodeTypes } from '@root/renderer/components/_atoms/graphical-editor/fbd'
 import { BlockNode } from '@root/renderer/components/_atoms/graphical-editor/fbd/block'
+import { GraphicalDebugStatus } from '@root/renderer/components/_atoms/graphical-editor/graphical-debug-status'
 import { getVariableRestrictionType } from '@root/renderer/components/_atoms/graphical-editor/utils'
 import { ReactFlowPanel } from '@root/renderer/components/_atoms/react-flow'
 import { toast } from '@root/renderer/components/_features/[app]/toast/use-toast'
@@ -8,6 +9,16 @@ import BlockElement from '@root/renderer/components/_features/[workspace]/editor
 import { openPLCStoreBase, useOpenPLCStore } from '@root/renderer/store'
 import { FBDRungState } from '@root/renderer/store/slices'
 import { getFunctionBlockVariablesToCleanup } from '@root/renderer/store/slices/ladder/utils'
+import {
+  applyGraphicalBooleanNegation,
+  getGraphicalDebugSample,
+  getGraphicalDebugSourcesForStatement,
+  getGraphicalIecDebugNodeState,
+  type GraphicalDebugSample,
+  parseGraphicalDebugBoolean,
+  resolveFbdEdgeSamples,
+} from '@root/renderer/utils/graphical-debug'
+import { cn } from '@root/utils'
 import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-id'
 import {
   addEdge,
@@ -30,14 +41,19 @@ import { buildGenericNode } from './fbd-utils/nodes'
 import { useFBDClipboard } from './fbd-utils/useCopyPaste'
 
 const EDGE_COLOR_TRUE = '#00FF00'
+const EDGE_COLOR_FALSE = '#0464FB'
+const EDGE_COLOR_VALUE = '#38BDF8'
+const EDGE_COLOR_STALE = '#F59E0B'
+const UNAVAILABLE_GRAPHICAL_SAMPLE: GraphicalDebugSample = { value: undefined, quality: 'unavailable' }
 
 interface FBDProps {
   rung: FBDRungState
   nodeDivergences?: string[]
   isDebuggerActive?: boolean
+  selectedInstanceId?: number
 }
 
-export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }: FBDProps) => {
+export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false, selectedInstanceId }: FBDProps) => {
   const {
     editor,
     editorActions: { updateModelVariables, saveEditorViewState },
@@ -48,7 +64,15 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
     modals,
     modalActions: { closeModal, openModal },
     snapshotActions: { addSnapshot },
-    workspace: { isDebuggerVisible, debugVariableValues, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugForcedVariables,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugBreakpoints,
+    },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
 
@@ -61,9 +85,43 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const reactFlowViewportRef = useRef<HTMLDivElement>(null)
+  const lastAutoFocusKeyRef = useRef<string | null>(null)
 
   const [insideViewport, setInsideViewport] = useState(false)
   const [mousePosition, setMousePosition] = useState<XYPosition>({ x: 0, y: 0 })
+
+  useEffect(() => {
+    if (iecDebugStatus?.state !== 1) {
+      lastAutoFocusKeyRef.current = null
+      return
+    }
+    if (!reactFlowInstance) return
+    if (selectedInstanceId !== undefined && iecDebugStatus.currentInstanceId !== selectedInstanceId) return
+    const focusKey = `${iecDebugStatus.haltCount}:${iecDebugStatus.currentPouId}:${iecDebugStatus.currentStatementId}:${iecDebugStatus.currentInstanceId}`
+    if (lastAutoFocusKeyRef.current === focusKey) return
+    const currentBinding = getGraphicalDebugSourcesForStatement(
+      iecDebugMetadata,
+      iecDebugStatus.currentPouId,
+      iecDebugStatus.currentStatementId,
+    ).primary
+    if (currentBinding?.language !== 'fbd') return
+    if (!currentBinding) return
+    const currentNode = reactFlowInstance.getNode(currentBinding.node_id)
+    if (currentNode) {
+      lastAutoFocusKeyRef.current = focusKey
+      void reactFlowInstance.fitView({ nodes: [currentNode], duration: 180, padding: 0.45 })
+    }
+  }, [
+    iecDebugMetadata,
+    iecDebugStatus?.currentInstanceId,
+    iecDebugStatus?.currentPouId,
+    iecDebugStatus?.currentStatementId,
+    iecDebugStatus?.haltCount,
+    iecDebugStatus?.state,
+    reactFlowInstance,
+    selectedInstanceId,
+  ])
+
   useFBDClipboard({
     mousePosition,
     insideViewport,
@@ -74,32 +132,37 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
     },
   })
 
-  const getNodeOutputState = (nodeId: string, sourceHandle: string | null | undefined): boolean | undefined => {
-    if (!isDebuggerVisible) return undefined
+  const getNodeOutputSample = (nodeId: string, sourceHandle: string | null | undefined): GraphicalDebugSample => {
+    if (!isDebuggerVisible) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
     const node = rungLocal.nodes.find((n) => n.id === nodeId)
-    if (!node) return undefined
+    if (!node) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
     if (node.type === 'input-variable' || node.type === 'output-variable' || node.type === 'inout-variable') {
-      const variableData = node.data as { variable?: { name: string } }
+      const variableData = node.data as { variable?: { name: string }; negated?: boolean }
       const variableName = variableData.variable?.name
-      if (!variableName) return undefined
+      if (!variableName) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
-      if (!pouRef) return undefined
+      if (!pouRef) return UNAVAILABLE_GRAPHICAL_SAMPLE
       const variable = pouRef.data.variables.find((v) => v.name.toLowerCase() === variableName.toLowerCase())
-      if (!variable || variable.type.value.toUpperCase() !== 'BOOL') return undefined
+      if (!variable) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
       const compositeKey = getCompositeKey(variableName)
 
-      if (debugForcedVariables.has(compositeKey)) {
-        return debugForcedVariables.get(compositeKey)
+      if (variable.type.value.toUpperCase() === 'BOOL' && debugForcedVariables.has(compositeKey)) {
+        return applyGraphicalBooleanNegation(
+          {
+            value: debugForcedVariables.get(compositeKey) ? 'TRUE' : 'FALSE',
+            quality: 'sampled',
+          },
+          variableData.negated,
+        )
       }
 
-      const value = debugVariableValues.get(compositeKey)
-      if (value === undefined) return undefined
-
-      const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-      return isTrue
+      return applyGraphicalBooleanNegation(
+        getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey),
+        variableData.negated,
+      )
     }
 
     if (node.type === 'block') {
@@ -107,50 +170,40 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
         variable?: { name: string }
         variant?: { name: string; type: string; variables: Array<{ name: string; type: { value: string } }> }
       }
-      if (!sourceHandle) return undefined
+      if (!sourceHandle) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
       // For program POUs, verify the program instance exists
       // For FB POUs, skip this check since getCompositeKey already handles instance context
       if (pouRef?.type !== 'function-block') {
         const instances = project.data.configuration.resource.instances
         const programInstance = instances.find((inst: { program: string }) => inst.program === editor.meta.name)
-        if (!programInstance) return undefined
+        if (!programInstance) return UNAVAILABLE_GRAPHICAL_SAMPLE
       }
 
       const outputVariable = blockData.variant?.variables.find((v) => v.name === sourceHandle)
-      if (!outputVariable || outputVariable.type.value.toUpperCase() !== 'BOOL') return undefined
+      if (!outputVariable) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
       if (blockData.variant?.type === 'function-block') {
         const blockVariableName = blockData.variable?.name
-        if (!blockVariableName) return undefined
+        if (!blockVariableName) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
         const outputVariableName = `${blockVariableName}.${sourceHandle}`
         const compositeKey = getCompositeKey(outputVariableName)
-        const value = debugVariableValues.get(compositeKey)
-
-        if (value === undefined) return undefined
-
-        const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-        return isTrue
+        return getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey)
       } else if (blockData.variant?.type === 'function') {
         const blockName = blockData.variant.name.toUpperCase()
         const numericId = (node.data as { numericId?: string }).numericId
-        if (!numericId) return undefined
+        if (!numericId) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
         const tempVarName = `_TMP_${blockName}${numericId}_${sourceHandle.toUpperCase()}`
         const compositeKey = getCompositeKey(tempVarName)
-        const value = debugVariableValues.get(compositeKey)
-
-        if (value === undefined) return undefined
-
-        const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-        return isTrue
+        return getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey)
       }
 
-      return undefined
+      return UNAVAILABLE_GRAPHICAL_SAMPLE
     }
 
-    return undefined
+    return UNAVAILABLE_GRAPHICAL_SAMPLE
   }
 
   const styledEdges = useMemo(() => {
@@ -158,67 +211,50 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
       return rungLocal.edges
     }
 
-    const edgeStateMap = new Map<string, boolean>()
-
-    const isPassThroughNode = (node: (typeof rungLocal.nodes)[number]): boolean => {
-      return node.type === 'connector' || node.type === 'continuation'
-    }
-
-    const determineEdgeState = (edgeId: string, visited: Set<string> = new Set()): boolean => {
-      if (edgeStateMap.has(edgeId)) {
-        return edgeStateMap.get(edgeId)!
-      }
-
-      if (visited.has(edgeId)) {
-        return false
-      }
-      visited.add(edgeId)
-
-      const edge = rungLocal.edges.find((e) => e.id === edgeId)
-      if (!edge) {
-        visited.delete(edgeId)
-        return false
-      }
-
-      const sourceNode = rungLocal.nodes.find((n) => n.id === edge.source)
-      if (!sourceNode) {
-        visited.delete(edgeId)
-        return false
-      }
-
-      const incomingEdges = rungLocal.edges.filter((e) => e.target === edge.source)
-      const isInputGreen = incomingEdges.some((incomingEdge) => determineEdgeState(incomingEdge.id, visited))
-
-      const sourceOutputState = getNodeOutputState(edge.source, edge.sourceHandle)
-
-      const isGreen = isPassThroughNode(sourceNode) ? isInputGreen : sourceOutputState === true
-
-      edgeStateMap.set(edgeId, isGreen)
-      visited.delete(edgeId)
-      return isGreen
-    }
-
-    rungLocal.edges.forEach((edge) => {
-      determineEdgeState(edge.id, new Set())
-    })
+    const edgeSampleMap = resolveFbdEdgeSamples(rungLocal.nodes, rungLocal.edges, getNodeOutputSample)
 
     return rungLocal.edges.map((edge) => {
-      const isGreen = edgeStateMap.get(edge.id)
+      const sample = edgeSampleMap.get(edge.id) ?? UNAVAILABLE_GRAPHICAL_SAMPLE
 
-      if (isGreen === true) {
-        return {
-          ...edge,
-          style: { stroke: EDGE_COLOR_TRUE, strokeWidth: 2 },
-        }
+      const booleanValue = parseGraphicalDebugBoolean(sample)
+      const stroke =
+        sample.quality === 'unavailable' || sample.quality === 'type-error' || sample.quality === 'build-mismatch'
+          ? EDGE_COLOR_STALE
+          : sample.quality === 'stale'
+            ? EDGE_COLOR_STALE
+            : booleanValue === true
+              ? EDGE_COLOR_TRUE
+              : booleanValue === false
+                ? EDGE_COLOR_FALSE
+                : EDGE_COLOR_VALUE
+
+      return {
+        ...edge,
+        data: { ...edge.data, debugQuality: sample.quality },
+        label:
+          sample.value === undefined
+            ? sample.quality
+            : `${sample.value}${sample.quality === 'sampled' ? '' : ` (${sample.quality})`}`,
+        labelStyle: { fill: stroke, fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: '#111827', fillOpacity: 0.92 },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 3,
+        style: {
+          ...edge.style,
+          stroke,
+          strokeWidth: 2,
+          strokeDasharray: ['stale', 'unavailable', 'type-error', 'build-mismatch'].includes(sample.quality)
+            ? '5 4'
+            : undefined,
+        },
       }
-
-      return edge
     })
   }, [
     rungLocal.edges,
     rungLocal.nodes,
     isDebuggerVisible,
     debugVariableValues,
+    debugVariableUpdatedAt,
     debugForcedVariables,
     editor.meta.name,
     pouRef?.data.variables,
@@ -227,16 +263,41 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   const styledNodes = useMemo(() => {
     if (isDebuggerActive) {
-      return rungLocal.nodes.map((node) => ({
-        ...node,
-        draggable: false,
-        selectable: false,
-        deletable: false,
-      }))
+      return rungLocal.nodes.map((node) => {
+        const debugState = getGraphicalIecDebugNodeState(
+          iecDebugMetadata,
+          iecDebugStatus,
+          iecDebugBreakpoints,
+          editor.meta.name,
+          node.id,
+          undefined,
+          selectedInstanceId,
+        )
+        return {
+          ...node,
+          className: cn(node.className, {
+            'iec-graphical-debug-mapped': debugState.binding,
+            'iec-graphical-debug-current': debugState.isCurrent,
+            'iec-graphical-debug-related': debugState.isSecondaryCurrent,
+            'iec-graphical-debug-breakpoint': debugState.hasBreakpoint,
+          }),
+          draggable: false,
+          selectable: true,
+          deletable: false,
+        }
+      })
     }
 
     return rungLocal.nodes
-  }, [rungLocal.nodes, isDebuggerActive])
+  }, [
+    editor.meta.name,
+    iecDebugBreakpoints,
+    iecDebugMetadata,
+    iecDebugStatus,
+    isDebuggerActive,
+    rungLocal.nodes,
+    selectedInstanceId,
+  ])
 
   const nodeTypes = useMemo(() => customNodeTypes, [])
   const canZoom = useMemo(() => {
@@ -706,7 +767,7 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   return (
     <div
-      className='h-full w-full rounded-lg border p-1 dark:border-neutral-800'
+      className='relative h-full w-full rounded-lg border p-1 dark:border-neutral-800'
       ref={reactFlowViewportRef}
       onMouseEnter={() => {
         setInsideViewport(true)
@@ -719,6 +780,7 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
         setMousePosition({ x: event.clientX, y: event.clientY })
       }}
     >
+      {isDebuggerVisible && <GraphicalDebugStatus />}
       <ReactFlowPanel
         key={'fbd-react-flow'}
         background={true}

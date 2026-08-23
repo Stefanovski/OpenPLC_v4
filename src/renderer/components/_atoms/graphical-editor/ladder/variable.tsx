@@ -446,7 +446,6 @@ const VariableElement = (block: VariableProps) => {
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible || !isAVariable) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
   }

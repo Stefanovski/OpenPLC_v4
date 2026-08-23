@@ -35,12 +35,15 @@ import { WorkspaceActivityBar } from '../components/_organisms/workspace-activit
 import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templates'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
+import { collectGraphicalDebugWatchKeys } from '../utils/graphical-debug'
+import { buildFbDebugInstanceMap } from '../utils/iec-debug'
 import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../utils/variable-sizes'
 
 const DEBUGGER_POLL_INTERVAL_MS = 50
 const IEC_DEBUGGER_POLL_INTERVAL_MS = 100
 const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
+const ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN = false
 
 const WorkspaceScreen = () => {
   const {
@@ -208,10 +211,24 @@ const WorkspaceScreen = () => {
               const debugPou = state.workspace.iecDebugMetadata?.pous.find(
                 (candidate) => candidate.id === confirmed.data?.currentPouId,
               )
+              const debugInstance = state.workspace.iecDebugMetadata?.instances.find(
+                (candidate) => candidate.id === confirmed.data?.currentInstanceId,
+              )
+              if (debugPou && debugInstance?.pou_id === debugPou.id && debugInstance.kind === 'function-block') {
+                const typeKey = debugPou.name.toUpperCase()
+                const instance = (state.workspace.fbDebugInstances.get(typeKey) ?? []).find(
+                  (candidate) => candidate.instanceId === debugInstance.id || candidate.path === debugInstance.path,
+                )
+                if (instance) state.workspaceActions.setFbSelectedInstance(typeKey, instance.key)
+              }
               const projectPou = state.project.data.pous.find(
                 (candidate) => candidate.data.name.toUpperCase() === debugPou?.name.toUpperCase(),
               )
-              if (projectPou?.data.language === 'st' && state.editor.meta.name !== projectPou.data.name) {
+              if (
+                projectPou &&
+                ['st', 'fbd', 'ld'].includes(projectPou.data.language) &&
+                state.editor.meta.name !== projectPou.data.name
+              ) {
                 const directory = projectPou.type === 'function-block' ? 'function-blocks' : `${projectPou.type}s`
                 state.sharedWorkspaceActions.openFile({
                   name: projectPou.data.name,
@@ -250,6 +267,17 @@ const WorkspaceScreen = () => {
       }
 
       workspaceActions.setIecDebugMetadata(metadata.data)
+      const metadataInstancesByType = buildFbDebugInstanceMap(metadata.data)
+      if (metadataInstancesByType.size > 0) {
+        workspaceActions.setFbDebugInstances(metadataInstancesByType)
+        const selectedInstances = useOpenPLCStore.getState().workspace.fbSelectedInstance
+        metadataInstancesByType.forEach((instances, typeKey) => {
+          const selectedKey = selectedInstances.get(typeKey)
+          if (!instances.some((instance) => instance.key === selectedKey)) {
+            workspaceActions.setFbSelectedInstance(typeKey, instances[0].key)
+          }
+        })
+      }
       await pollStatus()
       pollingInterval = setInterval(() => void pollStatus(), IEC_DEBUGGER_POLL_INTERVAL_MS)
     }
@@ -279,7 +307,7 @@ const WorkspaceScreen = () => {
 
   useEffect(() => {
     const {
-      workspace: { isDebuggerVisible, debuggerTargetIp, debugVariableIndexes },
+      workspace: { isDebuggerVisible, debuggerTargetIp, debugVariableIndexes, iecDebugMetadata },
       deviceDefinitions,
       workspaceActions,
       project,
@@ -327,6 +355,7 @@ const WorkspaceScreen = () => {
         return
       }
     }
+    let pollingActive = true
     let batchSize = 60
 
     if (isRTU && !isTCP) {
@@ -766,26 +795,33 @@ const WorkspaceScreen = () => {
             if (!blockData.variant || blockData.variant.type !== 'function' || !blockData.numericId) return
 
             const blockName = blockData.variant.name.toUpperCase()
-            let baseTypeOutputs = blockData.variant.variables.filter(
-              (variable) =>
-                (variable.class === 'output' || variable.class === 'inOut') && variable.type.definition === 'base-type',
+            let outputVariables = blockData.variant.variables.filter(
+              (variable) => variable.class === 'output' || variable.class === 'inOut',
             )
 
             if (
               blockData.executionControl &&
-              !baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
+              !outputVariables.some((variable) => variable.name.toUpperCase() === 'ENO')
             ) {
-              baseTypeOutputs = [
-                ...baseTypeOutputs,
+              outputVariables = [
+                ...outputVariables,
                 { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
               ]
             }
 
-            baseTypeOutputs.forEach((outputVariable) => {
+            outputVariables.forEach((outputVariable) => {
               const tempVarName = `_TMP_${blockName}${blockData.numericId}_${outputVariable.name}`
               const debugPath = `RES0__${programInstance.name.toUpperCase()}.${tempVarName.toUpperCase()}`
               const index = debugVariableIndexes.get(debugPath)
               if (index === undefined) return
+              const generatedType = iecDebugMetadata?.variables
+                .find((variable) => variable.legacy_index === index)
+                ?.type.toLowerCase()
+              const outputType =
+                outputVariable.type.definition === 'base-type'
+                  ? outputVariable.type.value.toLowerCase()
+                  : generatedType
+              if (!outputType || !baseTypeSchema.safeParse(outputType).success) return
 
               addVariableInfo(index, {
                 pouName: pou.data.name,
@@ -793,7 +829,7 @@ const WorkspaceScreen = () => {
                   name: tempVarName,
                   type: {
                     definition: 'base-type',
-                    value: outputVariable.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                    value: outputType as PLCBaseTypesLowercase,
                   },
                   class: 'local',
                   location: '',
@@ -911,31 +947,35 @@ const WorkspaceScreen = () => {
               const numericId = blockData.numericId
               if (!numericId) return
 
-              let baseTypeOutputs = blockData.variant.variables.filter(
-                (variable) =>
-                  (variable.class === 'output' || variable.class === 'inOut') &&
-                  variable.type.definition === 'base-type',
+              let outputVariables = blockData.variant.variables.filter(
+                (variable) => variable.class === 'output' || variable.class === 'inOut',
               )
 
               // Add ENO if execution control is enabled
               const hasExecutionControl = blockData.executionControl || false
               if (hasExecutionControl) {
-                const hasENO = baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
+                const hasENO = outputVariables.some((variable) => variable.name.toUpperCase() === 'ENO')
                 if (!hasENO) {
-                  baseTypeOutputs = [
-                    ...baseTypeOutputs,
+                  outputVariables = [
+                    ...outputVariables,
                     { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
                   ]
                 }
               }
 
-              baseTypeOutputs.forEach((outputVar) => {
+              outputVariables.forEach((outputVar) => {
                 // Debug path uses the full nested path:
                 // RES0__INSTANCE0.FB_B0.FB_A0._TMP_EQ_STATE7415072_ENO
                 const debugPath = `${debugPathPrefix}._TMP_${blockName}${numericId}_${outputVar.name.toUpperCase()}`
                 const index = debugVariableIndexes.get(debugPath)
 
                 if (index !== undefined) {
+                  const generatedType = iecDebugMetadata?.variables
+                    .find((variable) => variable.legacy_index === index)
+                    ?.type.toLowerCase()
+                  const outputType =
+                    outputVar.type.definition === 'base-type' ? outputVar.type.value.toLowerCase() : generatedType
+                  if (!outputType || !baseTypeSchema.safeParse(outputType).success) return
                   // Variable name includes the full nested path for composite key matching
                   const tempVarName = `${variablePathPrefix}._TMP_${blockName}${numericId}_${outputVar.name}`
                   addVariableInfo(index, {
@@ -944,7 +984,7 @@ const WorkspaceScreen = () => {
                       name: tempVarName,
                       type: {
                         definition: 'base-type',
-                        value: outputVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                        value: outputType as PLCBaseTypesLowercase,
                       },
                       class: 'local',
                       location: '',
@@ -1047,7 +1087,7 @@ const WorkspaceScreen = () => {
     wsActions.setDebugVariableIndexes(updatedIndexes)
 
     const pollVariables = async () => {
-      if (!isMountedRef.current) return
+      if (!pollingActive || !isMountedRef.current) return
 
       if (!variableInfoMapRef.current) {
         return
@@ -1187,6 +1227,12 @@ const WorkspaceScreen = () => {
           }
         })
 
+        // Preserve user watches, plots and expanded debugger-tree values. The legacy graphical scan below is kept
+        // temporarily for compatibility while the active graph is resolved, but its broad additions are replaced
+        // by the dependency planner before the request is sent.
+        const explicitDebugVariableKeys = new Set(debugVariableKeys)
+        const graphicalDebugVariableKeys = new Set<string>()
+
         const { editor, ladderFlows } = useOpenPLCStore.getState()
         const currentPou = currentProject.data.pous.find((pou) => pou.data.name === editor.meta.name)
 
@@ -1205,7 +1251,7 @@ const WorkspaceScreen = () => {
           return `${currentPou.data.name}:${variableName}`
         }
 
-        if (currentPou && currentPou.data.body.language === 'ld') {
+        if (ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN && currentPou && currentPou.data.body.language === 'ld') {
           const currentLadderFlow = ladderFlows.find((flow) => flow.name === editor.meta.name)
           if (currentLadderFlow) {
             currentLadderFlow.rungs.forEach((rung) => {
@@ -1348,7 +1394,7 @@ const WorkspaceScreen = () => {
         }
 
         const { fbdFlows } = useOpenPLCStore.getState()
-        if (currentPou && currentPou.data.body.language === 'fbd') {
+        if (ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN && currentPou && currentPou.data.body.language === 'fbd') {
           const currentFbdFlow = fbdFlows.find((flow) => flow.name === editor.meta.name)
           if (currentFbdFlow) {
             currentFbdFlow.rung.nodes.forEach((node) => {
@@ -1485,37 +1531,34 @@ const WorkspaceScreen = () => {
           }
         }
 
-        // Graphical editors display live badges for every base-type variable of the active POU.
-        if (currentPou) {
-          if (currentPou.type === 'function-block') {
-            const fbTypeKey = currentPou.data.name.toUpperCase()
-            const selectedKey = fbSelectedInstance.get(fbTypeKey)
-            const instances = fbDebugInstances.get(fbTypeKey) || []
-            const selectedInstance = instances.find((instance) => instance.key === selectedKey)
+        // The PC owns the graphical topology. Only request IEC values that are actually visible in the
+        // active LD/FBD graph; no graph IDs or power-flow state are sent to the target firmware.
+        if (currentPou && (currentPou.data.body.language === 'ld' || currentPou.data.body.language === 'fbd')) {
+          const graphNodes =
+            currentPou.data.body.language === 'ld'
+              ? ladderFlows.find((flow) => flow.name === editor.meta.name)?.rungs.flatMap((rung) => rung.nodes) ?? []
+              : fbdFlows.find((flow) => flow.name === editor.meta.name)?.rung.nodes ?? []
+          const graphEdges =
+            currentPou.data.body.language === 'ld'
+              ? ladderFlows.find((flow) => flow.name === editor.meta.name)?.rungs.flatMap((rung) => rung.edges) ?? []
+              : fbdFlows.find((flow) => flow.name === editor.meta.name)?.rung.edges ?? []
+          const availableKeys = new Set<string>()
+          variableInfoMapRef.current.forEach((varInfos) => {
+            for (const varInfo of varInfos) availableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
+          })
 
-            if (selectedInstance) {
-              const instancePrefix = `${selectedInstance.fbVariableName}.`
-              variableInfoMapRef.current.forEach((varInfos) => {
-                for (const varInfo of varInfos) {
-                  if (
-                    varInfo.pouName === selectedInstance.programName &&
-                    varInfo.variable.name.startsWith(instancePrefix)
-                  ) {
-                    debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
-                  }
-                }
-              })
-            }
-          } else {
-            variableInfoMapRef.current.forEach((varInfos) => {
-              for (const varInfo of varInfos) {
-                if (varInfo.pouName === currentPou.data.name) {
-                  debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
-                }
-              }
-            })
-          }
+          const graphicalWatchKeys = collectGraphicalDebugWatchKeys({
+            nodes: graphNodes,
+            edges: graphEdges,
+            makeCompositeKey: makeCompositeKeyForCurrentPou,
+            availableKeys,
+          })
+          graphicalWatchKeys.forEach((compositeKey) => graphicalDebugVariableKeys.add(compositeKey))
         }
+
+        debugVariableKeys.clear()
+        explicitDebugVariableKeys.forEach((compositeKey) => debugVariableKeys.add(compositeKey))
+        graphicalDebugVariableKeys.forEach((compositeKey) => debugVariableKeys.add(compositeKey))
 
         // A force operation must keep polling the affected value even if it is not otherwise watched.
         const {
@@ -1541,6 +1584,7 @@ const WorkspaceScreen = () => {
         // Values from previous batches persist because newValues starts as a copy of the current store
         const { workspace: currentWorkspace } = useOpenPLCStore.getState()
         const newValues = new Map<string, string>()
+        const newUpdatedAt = new Map(currentWorkspace.debugVariableUpdatedAt)
         currentWorkspace.debugVariableValues.forEach((value: string, key: string) => {
           newValues.set(key, value)
         })
@@ -1578,12 +1622,14 @@ const WorkspaceScreen = () => {
             const stableResult = await window.bridge.debuggerReadIecVariables(
               stableBatch.map(({ id, type }) => ({ id, type })),
             )
+            if (!pollingActive) return
             if (!stableResult.success || !stableResult.data) {
               throw new Error(stableResult.error ?? 'Stable IEC watch read failed')
             }
 
             const requestById = new Map(stableBatch.map((variable) => [variable.id, variable]))
             const nextForcedVariables = new Map(currentWorkspace.debugForcedVariables)
+            const sampledAt = Date.now()
             for (const valueResult of stableResult.data) {
               const request = requestById.get(valueResult.id)
               const varInfos = request ? variableInfoMapRef.current?.get(request.legacyIndex) : undefined
@@ -1595,6 +1641,7 @@ const WorkspaceScreen = () => {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, value)
+                newUpdatedAt.set(compositeKey, sampledAt)
                 if (valueResult.forced) {
                   if (!nextForcedVariables.has(compositeKey)) nextForcedVariables.set(compositeKey, true)
                 } else {
@@ -1606,6 +1653,7 @@ const WorkspaceScreen = () => {
             batchOffsetRef.current = (stableOffset + stableResult.data.length) % allIndexes.length
             if (isMountedRef.current) {
               workspaceActions.setDebugVariableValues(newValues)
+              workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
               workspaceActions.setDebugForcedVariables(nextForcedVariables)
             }
             return
@@ -1625,6 +1673,7 @@ const WorkspaceScreen = () => {
 
         // First request
         let result = await window.bridge.debuggerGetVariablesList(batch)
+        if (!pollingActive) return
 
         // Handle ERROR_OUT_OF_MEMORY with retry (halve batch size, retry same offset)
         while (!result.success && result.error === 'ERROR_OUT_OF_MEMORY' && currentBatchSize > 2) {
@@ -1661,6 +1710,7 @@ const WorkspaceScreen = () => {
         if (result.data && result.lastIndex !== undefined && Array.isArray(result.data)) {
           const responseBuffer = new Uint8Array(result.data)
           let bufferOffset = 0
+          const sampledAt = Date.now()
 
           for (const index of batch) {
             const varInfos = variableInfoMapRef.current?.get(index)
@@ -1682,12 +1732,14 @@ const WorkspaceScreen = () => {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, value)
+                newUpdatedAt.set(compositeKey, sampledAt)
               }
               bufferOffset += bytesRead
             } catch {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, 'ERR')
+                newUpdatedAt.set(compositeKey, sampledAt)
               }
               bufferOffset += getVariableSize(variable)
             }
@@ -1707,8 +1759,10 @@ const WorkspaceScreen = () => {
 
         if (isMountedRef.current) {
           workspaceActions.setDebugVariableValues(newValues)
+          workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
         }
       } catch (error: unknown) {
+        if (!pollingActive || !useOpenPLCStore.getState().workspace.isDebuggerVisible) return
         const { consoleActions } = useOpenPLCStore.getState()
         consoleActions.addLog({
           id: `debugger-poll-error-${Date.now()}`,
@@ -1734,6 +1788,7 @@ const WorkspaceScreen = () => {
     }, DEBUGGER_POLL_INTERVAL_MS)
 
     return () => {
+      pollingActive = false
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null
@@ -1920,7 +1975,7 @@ const WorkspaceScreen = () => {
     }
   }
 
-  const handleWriteVariable = async (
+  const handleModifyVariable = async (
     compositeKey: string,
     _variableType: string,
     value?: boolean,
@@ -1941,7 +1996,14 @@ const WorkspaceScreen = () => {
       stableVariable.type_code,
       toNativeIecDebugValue(buffer, stableVariable.type_code),
     )
-    if (!result.success) console.warn(`[IEC Debugger] Write failed for ${compositeKey}: ${result.error}`)
+    const { consoleActions } = useOpenPLCStore.getState()
+    consoleActions.addLog({
+      id: crypto.randomUUID(),
+      level: result.success ? 'info' : 'error',
+      message: result.success
+        ? `Modified ${compositeKey}. The PLC program may overwrite this value in the next cycle.`
+        : `Failed to modify ${compositeKey}: ${result.error ?? 'Unknown error'}`,
+    })
   }
   return (
     <div className='flex h-full w-full bg-brand-dark dark:bg-neutral-950'>
@@ -2161,7 +2223,7 @@ const WorkspaceScreen = () => {
                               onToggleExpandedNode={toggleDebugExpandedNode}
                               isDebuggerVisible={isDebuggerVisible}
                               onForceVariable={handleForceVariable}
-                              onWriteVariable={iecDebugMetadata ? handleWriteVariable : undefined}
+                              onModifyVariable={iecDebugMetadata ? handleModifyVariable : undefined}
                             />
                           </ResizablePanel>
                           <ResizableHandle className='w-2 bg-transparent' />

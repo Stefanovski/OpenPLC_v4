@@ -8,7 +8,13 @@ import {
   RisingEdgeCoil,
   SetCoil,
 } from '@root/renderer/assets/icons/flow/Coil'
+import { useGraphicalIecBreakpoint } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
+import {
+  getGraphicalDebugSample,
+  type LdCoilDebugState,
+  parseGraphicalDebugBoolean,
+} from '@root/renderer/utils/graphical-debug'
 import { cn, generateNumericUUID } from '@root/utils'
 import type { Node, NodeProps } from '@xyflow/react'
 import { Position } from '@xyflow/react'
@@ -24,6 +30,7 @@ import { getLadderPouVariablesRungNodeAndEdges } from './utils'
 export type CoilNode = Node<
   BasicNodeData & {
     variant: 'default' | 'negated' | 'risingEdge' | 'fallingEdge' | 'set' | 'reset'
+    debugPowerFlow?: LdCoilDebugState
   }
 >
 type CoilProps = NodeProps<CoilNode>
@@ -127,10 +134,24 @@ export const Coil = (block: CoilProps) => {
     },
     ladderFlows,
     ladderFlowActions: { updateNode },
-    workspace: { isDebuggerVisible, debugVariableValues, debugVariableIndexes, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugVariableIndexes,
+      debugForcedVariables,
+    },
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
+  const coilRungId = ladderFlows
+    .find((flow) => flow.name.toUpperCase() === editor.meta.name.toUpperCase())
+    ?.rungs.find((rung) => rung.nodes.some((node) => node.id === id))?.id
+  const {
+    binding: breakpointBinding,
+    hasBreakpoint,
+    toggleBreakpoint,
+  } = useGraphicalIecBreakpoint({ nodeId: id, rungId: coilRungId })
 
   const coil = DEFAULT_COIL_TYPES[data.variant]
   const [coilVariableValue, setCoilVariableValue] = useState<string>(data.variable.name)
@@ -145,17 +166,10 @@ export const Coil = (block: CoilProps) => {
     const isForced = debugForcedVariables.has(compositeKey)
 
     // When forced, use immediate value from debugForcedVariables (no 200ms poll delay)
-    const value = isForced
+    const isTrue = isForced
       ? debugForcedVariables.get(compositeKey)
-        ? '1'
-        : '0'
-      : debugVariableValues.get(compositeKey)
-
-    if (value === undefined) {
-      return undefined
-    }
-
-    const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
+      : parseGraphicalDebugBoolean(getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey))
+    if (isTrue === undefined) return undefined
     const displayState = data.variant === 'negated' ? !isTrue : isTrue
 
     if (isForced) {
@@ -166,6 +180,9 @@ export const Coil = (block: CoilProps) => {
   }
 
   const debuggerFillColor = getDebuggerFillColor()
+  const debugPowerFlowTitle = data.debugPowerFlow
+    ? `Calculated rung input: ${data.debugPowerFlow.inputPower.value ?? 'unavailable'} (${data.debugPowerFlow.inputPower.quality}); actual coil value: ${data.debugPowerFlow.actualValue === undefined ? 'unavailable' : data.debugPowerFlow.actualValue ? 'TRUE' : 'FALSE'}${data.debugPowerFlow.differs ? '; values differ due to coil semantics or another write' : ''}`
+    : undefined
 
   const inputWrapperRef = useRef<HTMLDivElement>(null)
   const inputVariableRef = useRef<
@@ -398,9 +415,15 @@ export const Coil = (block: CoilProps) => {
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
+  }
+
+  const handleToggleBreakpoint = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsContextMenuOpen(false)
+    toggleBreakpoint()
   }
 
   return (
@@ -418,8 +441,14 @@ export const Coil = (block: CoilProps) => {
         )}
         style={{ width: DEFAULT_COIL_BLOCK_WIDTH, height: DEFAULT_COIL_BLOCK_HEIGHT }}
         onClick={isDebuggerVisible ? handleClick : undefined}
+        title={debugPowerFlowTitle}
       >
         {coil.svg(wrongVariable, debuggerFillColor)}
+        {isDebuggerVisible && data.debugPowerFlow?.differs && (
+          <span className='absolute -right-3 -top-3 rounded bg-amber-500 px-1 text-[9px] font-bold text-neutral-950'>
+            !=
+          </span>
+        )}
         <div className='absolute left-1/2 w-[72px] -translate-x-1/2' ref={inputWrapperRef}>
           <HighlightedTextArea
             id={`coil-variable-input-${id}`}
@@ -539,10 +568,18 @@ export const Coil = (block: CoilProps) => {
                     </div>
                     {isForced && (
                       <div
-                        className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                        className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                         onClick={(e) => void handleReleaseForce(e)}
                       >
                         <p>Release Force</p>
+                      </div>
+                    )}
+                    {breakpointBinding && (
+                      <div
+                        className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg border-t border-neutral-200 px-2 py-1 hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                        onClick={handleToggleBreakpoint}
+                      >
+                        <p>{hasBreakpoint ? 'Remove Breakpoint' : 'Set Breakpoint'}</p>
                       </div>
                     )}
                   </Popover.Content>

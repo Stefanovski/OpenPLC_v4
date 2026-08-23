@@ -3,17 +3,13 @@ import './configs'
 import { Editor as PrimitiveEditor } from '@monaco-editor/react'
 import { Modal, ModalContent, ModalTitle } from '@process:renderer/components/_molecules/modal'
 import { openPLCStoreBase, useOpenPLCStore } from '@process:renderer/store'
+import { buildIecDebugBreakpoint, formatIecDebugValue, iecDebugValueSize } from '@root/renderer/utils/iec-debug'
 import { PLCVariable } from '@root/types/PLC'
-import type { IecDebugBreakpoint, IecDebugResumeMode, IecDebugVariable } from '@root/types/PLC/iec-debug'
+import type { IecDebugResumeMode, IecDebugVariable } from '@root/types/PLC/iec-debug'
 import { baseTypeSchema, type PLCPou } from '@root/types/PLC/open-plc'
 import * as monaco from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  VscDebugContinue,
-  VscDebugStepInto,
-  VscDebugStepOut,
-  VscDebugStepOver,
-} from 'react-icons/vsc'
+import { VscDebugContinue, VscDebugStepInto, VscDebugStepOut, VscDebugStepOver } from 'react-icons/vsc'
 
 import { toast } from '../../../[app]/toast/use-toast'
 import {
@@ -66,69 +62,6 @@ type BlockCommentState = false | 'paren' | 'slash'
 const IEC_DEBUG_CAP_STEP_OVER = 1 << 5
 const IEC_DEBUG_CAP_STEP_OUT = 1 << 6
 const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
-
-const iecDebugValueSize = (type: number): number => {
-  if ([1, 2, 3, 17].includes(type)) return 1
-  if ([4, 5, 18].includes(type)) return 2
-  if ([6, 7, 10, 19].includes(type)) return 4
-  if ([8, 9, 11, 12, 13, 14, 15, 20].includes(type)) return 8
-  if (type === 16) return 127
-  return 0
-}
-
-const formatIecDebugValue = (variable: IecDebugVariable, bytes: number[]): string => {
-  const value = Uint8Array.from(bytes)
-  const view = new DataView(value.buffer, value.byteOffset, value.byteLength)
-  if (variable.type_code === 1) return value[0] ? 'TRUE' : 'FALSE'
-  if (variable.type_code === 2) return view.getInt8(0).toString()
-  if ([3, 17].includes(variable.type_code)) return view.getUint8(0).toString()
-  if (variable.type_code === 4) return view.getInt16(0, true).toString()
-  if ([5, 18].includes(variable.type_code)) return view.getUint16(0, true).toString()
-  if (variable.type_code === 6) return view.getInt32(0, true).toString()
-  if ([7, 19].includes(variable.type_code)) return view.getUint32(0, true).toString()
-  if (variable.type_code === 8) return view.getBigInt64(0, true).toString()
-  if ([9, 20].includes(variable.type_code)) return view.getBigUint64(0, true).toString()
-  if (variable.type_code === 10) return view.getFloat32(0, true).toString()
-  if (variable.type_code === 11) return view.getFloat64(0, true).toString()
-  return `0x${bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
-}
-
-const encodeIecDebugLiteral = (variable: IecDebugVariable, literal: string): number[] | null => {
-  const size = iecDebugValueSize(variable.type_code)
-  if (size <= 0 || size > 8) return null
-  const bytes = new Uint8Array(size)
-  const view = new DataView(bytes.buffer)
-  const normalized = literal.trim().toUpperCase()
-  const numeric = Number(literal)
-  if (variable.type_code === 1) {
-    if (!['TRUE', 'FALSE', '1', '0'].includes(normalized)) return null
-    view.setUint8(0, ['TRUE', '1'].includes(normalized) ? 1 : 0)
-  } else if (variable.type_code >= 2 && variable.type_code <= 7) {
-    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return null
-    if (variable.type_code === 2) view.setInt8(0, numeric)
-    else if ([3, 17].includes(variable.type_code)) view.setUint8(0, numeric)
-    else if (variable.type_code === 4) view.setInt16(0, numeric, true)
-    else if ([5, 18].includes(variable.type_code)) view.setUint16(0, numeric, true)
-    else if (variable.type_code === 6) view.setInt32(0, numeric, true)
-    else view.setUint32(0, numeric, true)
-  } else if ([17, 18, 19].includes(variable.type_code)) {
-    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return null
-    if (variable.type_code === 17) view.setUint8(0, numeric)
-    else if (variable.type_code === 18) view.setUint16(0, numeric, true)
-    else view.setUint32(0, numeric, true)
-  }
-  else if (variable.type_code === 8) view.setBigInt64(0, BigInt(literal), true)
-  else if ([9, 20].includes(variable.type_code)) view.setBigUint64(0, BigInt(literal), true)
-  else if (variable.type_code === 10) {
-    if (!Number.isFinite(numeric)) return null
-    view.setFloat32(0, numeric, true)
-  } else if (variable.type_code === 11) {
-    if (!Number.isFinite(numeric)) return null
-    view.setFloat64(0, numeric, true)
-  }
-  else return null
-  return Array.from(bytes)
-}
 
 // Replace comment regions with spaces so source column positions stay intact.
 function stripLineComments(line: string, state: BlockCommentState): { stripped: string; state: BlockCommentState } {
@@ -418,7 +351,9 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
 
   const statementAtLine = useCallback(
     (line: number) =>
-      iecDebugStatements.filter((statement) => statement.line === line).sort((left, right) => left.column - right.column)[0],
+      iecDebugStatements
+        .filter((statement) => statement.line === line)
+        .sort((left, right) => left.column - right.column)[0],
     [iecDebugStatements],
   )
 
@@ -451,71 +386,10 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       if (!statement || !iecDebugMetadata) return false
 
       try {
-        const breakpoint: IecDebugBreakpoint = { statementId: statement.id }
-        const parts = specification.split(';').map((part) => part.trim()).filter(Boolean)
-        let selectedInstance: (typeof iecDebugMetadata.instances)[number] | undefined
-        const instancePart = parts.find((part) => part.toLowerCase().startsWith('instance='))
-        if (instancePart) {
-          const requested = instancePart.slice(instancePart.indexOf('=') + 1).trim()
-          selectedInstance =
-            requested.toLowerCase() === 'current'
-              ? currentIecDebugInstance
-              : iecDebugMetadata.instances.find(
-                  (candidate) =>
-                    candidate.pou_id === statement.pou_id &&
-                    candidate.path.toUpperCase() === requested.toUpperCase(),
-                )
-          if (!selectedInstance || selectedInstance.pou_id !== statement.pou_id) {
-            throw new Error(`Unknown ${iecDebugPou?.name ?? 'IEC'} instance '${requested}'`)
-          }
-          breakpoint.instanceId = selectedInstance.id
-        }
-        const availableVariables = selectedInstance
-          ? iecDebugMetadata.variables.filter((variable) => variable.instance_id === selectedInstance.id)
-          : iecDebugMetadata.variables
-
-        for (const part of parts) {
-          if (part.toLowerCase().startsWith('instance=')) {
-            continue
-          }
-          if (part.toLowerCase().startsWith('hit=')) {
-            const hitTarget = Number(part.slice(part.indexOf('=') + 1))
-            if (!Number.isInteger(hitTarget) || hitTarget <= 0) throw new Error('Hit count must be a positive integer')
-            breakpoint.hitTarget = hitTarget
-            continue
-          }
-          if (part.toLowerCase().startsWith('change=')) {
-            if (!selectedInstance) throw new Error('Break on change requires an explicit instance')
-            const requested = part.slice(part.indexOf('=') + 1).trim().toUpperCase()
-            const variable = availableVariables.find(
-              (candidate) =>
-                candidate.path.toUpperCase() === requested || candidate.path.toUpperCase().endsWith(`.${requested}`),
-            )
-            if (!variable) throw new Error(`Unknown local IEC variable '${requested}'`)
-            const size = iecDebugValueSize(variable.type_code)
-            if (size <= 0 || size > 8) throw new Error(`Break on change does not support ${variable.type}`)
-            breakpoint.change = { variableId: variable.id, type: variable.type_code, size }
-            continue
-          }
-
-          const condition = part.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/)
-          if (!condition) throw new Error(`Unknown breakpoint option '${part}'`)
-          if (!selectedInstance) throw new Error('A conditional breakpoint requires an explicit instance')
-          const requested = condition[1].trim().toUpperCase()
-          const variable = availableVariables.find(
-            (candidate) =>
-              candidate.path.toUpperCase() === requested || candidate.path.toUpperCase().endsWith(`.${requested}`),
-          )
-          if (!variable) throw new Error(`Unknown local IEC variable '${condition[1].trim()}'`)
-          const value = encodeIecDebugLiteral(variable, condition[3])
-          if (!value) throw new Error(`Conditions do not support ${variable.type}`)
-          breakpoint.condition = {
-            variableId: variable.id,
-            type: variable.type_code,
-            operator: condition[2] as NonNullable<IecDebugBreakpoint['condition']>['operator'],
-            value,
-          }
-        }
+        const breakpoint = buildIecDebugBreakpoint(
+          { metadata: iecDebugMetadata, statement, currentInstance: currentIecDebugInstance },
+          specification,
+        )
 
         void window.bridge.debuggerSetIecBreakpointEx(breakpoint, true).then((result) => {
           if (!result.success) {
@@ -536,14 +410,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
         return false
       }
     },
-    [
-      currentIecDebugInstance,
-      currentIecDebugLocals,
-      iecDebugBreakpoints,
-      iecDebugMetadata,
-      setIecDebugBreakpoints,
-      statementAtLine,
-    ],
+    [currentIecDebugInstance, iecDebugBreakpoints, iecDebugMetadata, setIecDebugBreakpoints, statementAtLine],
   )
 
   const configureIecBreakpoint = useCallback(
@@ -611,11 +478,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       } else if (event.key === 'F5' && isIecDebugHalted) {
         event.preventDefault()
         resumeIecDebug('continue')
-      } else if (
-        event.key === 'F10' &&
-        isIecDebugHalted &&
-        (iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OVER) !== 0
-      ) {
+      } else if (event.key === 'F10' && isIecDebugHalted && (iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OVER) !== 0) {
         event.preventDefault()
         resumeIecDebug('step-over')
       } else if (event.key === 'F11' && isIecDebugHalted) {
@@ -1459,8 +1322,7 @@ void loop()
               <VscDebugStepOut size={16} />
             </button>
             <span className='ml-auto text-neutral-500'>
-              F9 breakpoint · Shift+F9 advanced · {iecDebugBreakpoints.size}/
-              {iecDebugStatus?.breakpointCapacity ?? 64}
+              F9 breakpoint · Shift+F9 advanced · {iecDebugBreakpoints.size}/{iecDebugStatus?.breakpointCapacity ?? 64}
             </span>
           </div>
         )}
@@ -1517,7 +1379,9 @@ void loop()
                       : variable.path}
                   </span>
                   <span className='ml-auto text-neutral-400'>{variable.type}</span>
-                  <span className='w-28 truncate text-right text-brand'>{iecDebugLocalValues.get(variable.id) ?? '…'}</span>
+                  <span className='w-28 truncate text-right text-brand'>
+                    {iecDebugLocalValues.get(variable.id) ?? '…'}
+                  </span>
                 </div>
               ))}
             </section>
@@ -1540,7 +1404,10 @@ void loop()
               instance=DEBUGTEST.PUMP2; Counter&gt;=10; change=Counter; hit=100
             </div>
           </div>
-          <label htmlFor='iec-breakpoint-specification' className='text-sm font-medium text-neutral-800 dark:text-neutral-100'>
+          <label
+            htmlFor='iec-breakpoint-specification'
+            className='text-sm font-medium text-neutral-800 dark:text-neutral-100'
+          >
             Breakpoint specification for line {advancedBreakpointLine ?? '?'}
           </label>
           <input

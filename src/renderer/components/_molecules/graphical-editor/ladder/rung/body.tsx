@@ -3,6 +3,13 @@ import { getVariableRestrictionType } from '@root/renderer/components/_atoms/gra
 import { useOpenPLCStore } from '@root/renderer/store'
 import type { RungLadderState } from '@root/renderer/store/slices'
 import { getFunctionBlockVariablesToCleanup } from '@root/renderer/store/slices/ladder/utils'
+import {
+  evaluateLdCoil,
+  evaluateLdContact,
+  getGraphicalDebugSample,
+  getGraphicalIecDebugNodeState,
+  parseGraphicalDebugBoolean,
+} from '@root/renderer/utils/graphical-debug'
 import { cn } from '@root/utils'
 import type { CoordinateExtent, Node as FlowNode, OnNodesChange, ReactFlowInstance } from '@xyflow/react'
 import { applyNodeChanges, getNodesBounds } from '@xyflow/react'
@@ -23,6 +30,8 @@ import {
 import { findNode } from './ladder-utils/nodes'
 
 const EDGE_COLOR_TRUE = '#00FF00'
+const EDGE_COLOR_FALSE = '#0464FB'
+const EDGE_COLOR_UNAVAILABLE = '#F59E0B'
 
 /**
  * Check recursively if the related target or any of its parent elements are within the ladder area
@@ -62,9 +71,16 @@ type RungBodyProps = {
   className?: string
   nodeDivergences?: string[]
   isDebuggerActive?: boolean
+  selectedInstanceId?: number
 }
 
-export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActive = false }: RungBodyProps) => {
+export const RungBody = ({
+  rung,
+  className,
+  nodeDivergences = [],
+  isDebuggerActive = false,
+  selectedInstanceId,
+}: RungBodyProps) => {
   const {
     ladderFlowActions,
     ladderFlows,
@@ -77,7 +93,14 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     searchQuery,
     searchActions: { setSearchNodePosition },
     snapshotActions: { addSnapshot },
-    workspace: { isDebuggerVisible, debugVariableValues },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugBreakpoints,
+    },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
 
@@ -90,10 +113,42 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const reactFlowViewportRef = useRef<HTMLDivElement>(null)
 
+  const getFreshBooleanValue = (compositeKey: string): boolean | undefined =>
+    parseGraphicalDebugBoolean(getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey))
+
+  const previousEdgeContactValuesRef = useRef<Map<string, boolean>>(new Map())
+  const sampledEdgeContactStates = useMemo(() => {
+    const nextValues = new Map(previousEdgeContactValuesRef.current)
+    const edgeStates = new Map<string, boolean>()
+
+    rungLocal.nodes.forEach((node) => {
+      if (node.type !== 'contact') return
+      const contactData = node.data as {
+        variable?: { name: string }
+        variant: 'default' | 'negated' | 'risingEdge' | 'fallingEdge'
+      }
+      if (contactData.variant !== 'risingEdge' && contactData.variant !== 'fallingEdge') return
+      const variableName = contactData.variable?.name
+      if (!variableName) return
+
+      const currentValue = getFreshBooleanValue(getCompositeKey(variableName))
+      if (currentValue === undefined) return
+      const previousValue = previousEdgeContactValuesRef.current.get(node.id)
+      const edgeDetected =
+        previousValue !== undefined &&
+        (contactData.variant === 'risingEdge' ? !previousValue && currentValue : previousValue && !currentValue)
+      edgeStates.set(node.id, edgeDetected)
+      nextValues.set(node.id, currentValue)
+    })
+
+    previousEdgeContactValuesRef.current = nextValues
+    return edgeStates
+  }, [rungLocal.nodes, debugVariableValues, debugVariableUpdatedAt, getCompositeKey])
+
   const getNodeOutputState = (
     nodeId: string,
     sourceHandle: string | null | undefined,
-    isInputGreen: boolean,
+    isInputGreen: boolean | undefined,
   ): boolean | undefined => {
     if (!isDebuggerVisible) return undefined
 
@@ -109,18 +164,24 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     }
 
     if (node.type === 'contact') {
-      const contactData = node.data as { variable?: { name: string }; variant: 'open' | 'negated' }
+      const contactData = node.data as {
+        variable?: { name: string }
+        variant: 'default' | 'negated' | 'risingEdge' | 'fallingEdge'
+      }
       const variableName = contactData.variable?.name
       if (!variableName) return undefined
 
       const compositeKey = getCompositeKey(variableName)
-      const value = debugVariableValues.get(compositeKey)
-      if (value === undefined) return undefined
-
-      const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-      const contactState = (node.data as { variant: 'open' | 'negated' }).variant === 'negated' ? !isTrue : isTrue
-
-      return isInputGreen && contactState
+      const contactOutput = evaluateLdContact(
+        {
+          value: isInputGreen === undefined ? undefined : isInputGreen ? 'TRUE' : 'FALSE',
+          quality: isInputGreen === undefined ? 'unavailable' : 'sampled',
+        },
+        getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey),
+        contactData.variant,
+        sampledEdgeContactStates.get(node.id),
+      )
+      return parseGraphicalDebugBoolean(contactOutput)
     }
 
     if (node.type === 'coil') {
@@ -149,12 +210,7 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
 
         const outputVariableName = `${blockVariableName}.${sourceHandle}`
         const compositeKey = getCompositeKey(outputVariableName)
-        const value = debugVariableValues.get(compositeKey)
-
-        if (value === undefined) return undefined
-
-        const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-        return isTrue
+        return getFreshBooleanValue(compositeKey)
       } else if (blockData.variant?.type === 'function') {
         const blockName = blockData.variant.name.toUpperCase()
         const numericId = blockData.numericId
@@ -162,12 +218,7 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
 
         const tempVarName = `_TMP_${blockName}${numericId}_${sourceHandle.toUpperCase()}`
         const compositeKey = getCompositeKey(tempVarName)
-        const value = debugVariableValues.get(compositeKey)
-
-        if (value === undefined) return undefined
-
-        const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
-        return isTrue
+        return getFreshBooleanValue(compositeKey)
       }
 
       return undefined
@@ -181,34 +232,45 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
       return rungLocal.edges
     }
 
-    const edgeStateMap = new Map<string, boolean>()
+    const edgeStateMap = new Map<string, boolean | undefined>()
 
-    const determineEdgeState = (edgeId: string): boolean => {
+    const determineEdgeState = (edgeId: string, visited: Set<string> = new Set()): boolean | undefined => {
       // Check if we've already computed this edge's state
       if (edgeStateMap.has(edgeId)) {
         return edgeStateMap.get(edgeId)!
       }
 
+      if (visited.has(edgeId)) return undefined
+      visited.add(edgeId)
+
       const edge = rungLocal.edges.find((e) => e.id === edgeId)
-      if (!edge) return false
+      if (!edge) {
+        visited.delete(edgeId)
+        return undefined
+      }
 
       const incomingEdges = rungLocal.edges.filter((e) => e.target === edge.source)
 
-      let isInputGreen = false
+      let isInputGreen: boolean | undefined = false
       if (incomingEdges.length === 0) {
         // Check if the source is the left power rail
         const sourceNode = rungLocal.nodes.find((n) => n.id === edge.source)
         isInputGreen = sourceNode?.type === 'powerRail' && (sourceNode.data as { variant: string }).variant === 'left'
       } else {
         // Check if any incoming edge is green
-        isInputGreen = incomingEdges.some((incomingEdge) => determineEdgeState(incomingEdge.id))
+        const incomingStates = incomingEdges.map((incomingEdge) => determineEdgeState(incomingEdge.id, visited))
+        isInputGreen = incomingStates.some((state) => state === true)
+          ? true
+          : incomingStates.every((state) => state === false)
+            ? false
+            : undefined
       }
 
       const sourceOutputState = getNodeOutputState(edge.source, edge.sourceHandle, isInputGreen)
 
-      const isGreen = sourceOutputState === true
-      edgeStateMap.set(edgeId, isGreen)
-      return isGreen
+      edgeStateMap.set(edgeId, sourceOutputState)
+      visited.delete(edgeId)
+      return sourceOutputState
     }
 
     rungLocal.edges.forEach((edge) => {
@@ -216,22 +278,25 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     })
 
     return rungLocal.edges.map((edge) => {
-      const isGreen = edgeStateMap.get(edge.id)
-
-      if (isGreen === true) {
-        return {
-          ...edge,
-          style: { stroke: EDGE_COLOR_TRUE, strokeWidth: 2 },
-        }
+      const state = edgeStateMap.get(edge.id)
+      return {
+        ...edge,
+        data: { ...edge.data, debugPowerFlow: state, debugQuality: state === undefined ? 'unavailable' : 'sampled' },
+        style: {
+          ...edge.style,
+          stroke: state === true ? EDGE_COLOR_TRUE : state === false ? EDGE_COLOR_FALSE : EDGE_COLOR_UNAVAILABLE,
+          strokeWidth: 2,
+          strokeDasharray: state === undefined ? '5 4' : undefined,
+        },
       }
-
-      return edge
     })
   }, [
     rungLocal.edges,
     rungLocal.nodes,
     isDebuggerVisible,
     debugVariableValues,
+    debugVariableUpdatedAt,
+    sampledEdgeContactStates,
     editor.meta.name,
     project,
     getCompositeKey,
@@ -241,18 +306,25 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     const baseNodes = !isDebuggerVisible
       ? rungLocal.nodes
       : (() => {
-          const nodeInputStateMap = new Map<string, boolean>()
+          const nodeInputStateMap = new Map<string, boolean | undefined>()
 
-          const determineNodeInputState = (nodeId: string): boolean => {
+          const determineNodeInputState = (nodeId: string, visited: Set<string> = new Set()): boolean | undefined => {
             if (nodeInputStateMap.has(nodeId)) {
               return nodeInputStateMap.get(nodeId)!
             }
 
+            if (visited.has(nodeId)) return undefined
+            visited.add(nodeId)
+
             const node = rungLocal.nodes.find((n) => n.id === nodeId)
-            if (!node) return false
+            if (!node) {
+              visited.delete(nodeId)
+              return undefined
+            }
 
             if (node.type === 'powerRail' && (node.data as { variant: string }).variant === 'left') {
               nodeInputStateMap.set(nodeId, true)
+              visited.delete(nodeId)
               return true
             }
 
@@ -260,21 +332,23 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
 
             if (incomingEdges.length === 0) {
               nodeInputStateMap.set(nodeId, false)
+              visited.delete(nodeId)
               return false
             }
 
-            const hasGreenInput = incomingEdges.some((incomingEdge) => {
-              const sourceInputGreen = determineNodeInputState(incomingEdge.source)
-              const sourceOutputGreen = getNodeOutputState(
-                incomingEdge.source,
-                incomingEdge.sourceHandle,
-                sourceInputGreen,
-              )
-              return sourceOutputGreen === true
+            const incomingStates = incomingEdges.map((incomingEdge) => {
+              const sourceInputGreen = determineNodeInputState(incomingEdge.source, visited)
+              return getNodeOutputState(incomingEdge.source, incomingEdge.sourceHandle, sourceInputGreen)
             })
+            const inputState = incomingStates.some((state) => state === true)
+              ? true
+              : incomingStates.every((state) => state === false)
+                ? false
+                : undefined
 
-            nodeInputStateMap.set(nodeId, hasGreenInput)
-            return hasGreenInput
+            nodeInputStateMap.set(nodeId, inputState)
+            visited.delete(nodeId)
+            return inputState
           }
 
           rungLocal.nodes.forEach((node) => {
@@ -283,7 +357,7 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
 
           return rungLocal.nodes.map((node) => {
             if (node.type === 'parallel') {
-              const isFlowActive = nodeInputStateMap.get(node.id) || false
+              const isFlowActive = nodeInputStateMap.get(node.id) === true
               return {
                 ...node,
                 data: {
@@ -292,17 +366,62 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
                 },
               }
             }
+            if (node.type === 'coil') {
+              const coilData = node.data as {
+                variable?: { name: string }
+                variant: 'default' | 'negated' | 'risingEdge' | 'fallingEdge' | 'set' | 'reset'
+              }
+              const inputPower = nodeInputStateMap.get(node.id)
+              const actualSample = coilData.variable?.name
+                ? getGraphicalDebugSample(
+                    debugVariableValues,
+                    debugVariableUpdatedAt,
+                    getCompositeKey(coilData.variable.name),
+                  )
+                : { value: undefined, quality: 'unavailable' as const }
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  debugPowerFlow: evaluateLdCoil(
+                    {
+                      value: inputPower === undefined ? undefined : inputPower ? 'TRUE' : 'FALSE',
+                      quality: inputPower === undefined ? 'unavailable' : 'sampled',
+                    },
+                    actualSample,
+                    coilData.variant,
+                  ),
+                },
+              }
+            }
             return node
           })
         })()
 
     if (isDebuggerActive) {
-      return baseNodes.map((node) => ({
-        ...node,
-        draggable: false,
-        selectable: false,
-        deletable: false,
-      }))
+      return baseNodes.map((node) => {
+        const debugState = getGraphicalIecDebugNodeState(
+          iecDebugMetadata,
+          iecDebugStatus,
+          iecDebugBreakpoints,
+          editor.meta.name,
+          node.id,
+          rung.id,
+          selectedInstanceId,
+        )
+        return {
+          ...node,
+          className: cn(node.className, {
+            'iec-graphical-debug-mapped': debugState.binding,
+            'iec-graphical-debug-current': debugState.isCurrent,
+            'iec-graphical-debug-related': debugState.isSecondaryCurrent,
+            'iec-graphical-debug-breakpoint': debugState.hasBreakpoint,
+          }),
+          draggable: false,
+          selectable: true,
+          deletable: false,
+        }
+      })
     }
 
     return baseNodes
@@ -311,10 +430,16 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     rungLocal.nodes,
     isDebuggerVisible,
     isDebuggerActive,
+    iecDebugBreakpoints,
+    iecDebugMetadata,
+    iecDebugStatus,
     debugVariableValues,
+    debugVariableUpdatedAt,
+    sampledEdgeContactStates,
     editor.meta.name,
     project,
     getCompositeKey,
+    selectedInstanceId,
   ])
 
   /**

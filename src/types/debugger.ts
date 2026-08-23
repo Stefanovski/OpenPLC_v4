@@ -17,6 +17,11 @@ export interface FbInstanceInfo {
 
   /** Unique key for this instance: `${programName}:${fbVariableName}` */
   key: string
+
+  /** Exact runtime path and stable IDs from the GELB IEC metadata. */
+  path?: string
+  instanceId?: number
+  pouId?: number
 }
 
 /**

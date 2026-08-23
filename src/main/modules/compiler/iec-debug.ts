@@ -1,6 +1,15 @@
+import { createHash } from 'node:crypto'
+
 import type { ProjectState } from '@root/renderer/store/slices'
+import type {
+  IecDebugSourceIdentity,
+  IecDebugSourceSpan,
+  IecGraphicalDebugBinding,
+  IecGraphicalPinBinding,
+} from '@root/types/PLC/iec-debug'
 
 export const IEC_DEBUG_METADATA_FILE = 'program.debug.json'
+export const XML2ST_SOURCE_MAP_FILE = 'program.source-map.json'
 export const IEC_DEBUG_VARIABLE_ADAPTER_MARKER = 'EUROSONIC_IEC_DEBUG_VARIABLE_ADAPTER_V1'
 
 export enum IecDebugVariableType {
@@ -77,6 +86,43 @@ type IecDebugMetadata = {
   }>
   variables: IecDebugVariable[]
   instances: Array<Omit<IecDebugInstance, 'c_expression' | 'root_c_symbol' | 'root_type'>>
+  graphical_bindings?: IecGraphicalDebugBinding[]
+  source_identity?: IecDebugSourceIdentity
+}
+
+type Xml2stSourceMapChunk = {
+  metadata: unknown[]
+  graphical: null | {
+    pou: string
+    kind: string
+    local_id: number
+    path: unknown[]
+  }
+  text: string
+  quality: string
+  span?: IecDebugSourceSpan
+}
+
+export type Xml2stSourceMap = {
+  format: 'eurosonic-xml2st-source-map'
+  version: 1
+  project_sha256: string
+  st_sha256: string
+  st_length: number
+  chunks: Xml2stSourceMapChunk[]
+}
+
+type GraphicalNodeData = {
+  numericId?: string
+  variable?: { name?: string }
+  variant?: { name?: string; type?: string; variables?: Array<{ name?: string; class?: string }> }
+}
+
+type GraphicalNode = {
+  id: string
+  type?: string
+  position?: { x: number; y: number }
+  data: unknown
 }
 
 const IEC_TYPE_CODES: Readonly<Record<string, IecDebugVariableType>> = {
@@ -221,10 +267,7 @@ const parseProgramRoots = (variablesCsv: string) => {
 
 const toIecDisplayPath = (path: string): string => path.replace(/\.value\.table/g, '')
 
-export const parseIecDebugInstances = (
-  variablesCsv: string,
-  pous: IecDebugMetadata['pous'],
-): IecDebugInstance[] => {
+export const parseIecDebugInstances = (variablesCsv: string, pous: IecDebugMetadata['pous']): IecDebugInstance[] => {
   const pouByName = new Map(pous.map((pou) => [pou.name.toUpperCase(), pou]))
   const roots = parseProgramRoots(variablesCsv)
   const candidates = roots.map((root) => ({ sourcePath: root.sourcePath, type: root.type, root }))
@@ -284,8 +327,7 @@ export const bindIecDebugVariablesToInstances = (
   variables.map((variable) => {
     const instance = instances
       .filter(
-        (candidate) =>
-          variable.name === candidate.source_path || variable.name.startsWith(`${candidate.source_path}.`),
+        (candidate) => variable.name === candidate.source_path || variable.name.startsWith(`${candidate.source_path}.`),
       )
       .sort((left, right) => right.source_path.length - left.source_path.length)[0]
     const relativePath = instance ? variable.name.slice(instance.source_path.length).replace(/^\./, '') : variable.name
@@ -296,10 +338,206 @@ export const bindIecDebugVariablesToInstances = (
     }
   })
 
+const getGraphicalNodeData = (node: GraphicalNode): GraphicalNodeData =>
+  typeof node.data === 'object' && node.data !== null ? (node.data as GraphicalNodeData) : {}
+
+const pickBreakpointStatement = (statements: IecDebugMetadata['statements']): number =>
+  (statements.find((statement) => /call/i.test(statement.type)) ?? statements[0])?.id ?? 0
+
+const sortGraphicalNodes = (nodes: GraphicalNode[]): GraphicalNode[] =>
+  [...nodes].sort(
+    (left, right) =>
+      (left.position?.y ?? 0) - (right.position?.y ?? 0) ||
+      (left.position?.x ?? 0) - (right.position?.x ?? 0) ||
+      left.id.localeCompare(right.id),
+  )
+
+const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
+
+export const parseXml2stSourceMap = (sourceMapJson: string, projectXml: string, programSt: string): Xml2stSourceMap => {
+  const sourceMap = JSON.parse(sourceMapJson) as Xml2stSourceMap
+  if (sourceMap.format !== 'eurosonic-xml2st-source-map' || sourceMap.version !== 1) {
+    throw new Error('Unsupported xml2st source-map format')
+  }
+  if (!Number.isInteger(sourceMap.st_length) || sourceMap.st_length < 0 || sourceMap.st_length > programSt.length) {
+    throw new Error('Invalid xml2st source-map ST length')
+  }
+  const compiledProgramSt = programSt.slice(0, sourceMap.st_length)
+  if (sourceMap.project_sha256 !== sha256(projectXml)) throw new Error('xml2st source-map project hash mismatch')
+  if (sourceMap.st_sha256 !== sha256(compiledProgramSt)) throw new Error('xml2st source-map ST hash mismatch')
+  for (const chunk of sourceMap.chunks) {
+    if (chunk.quality !== 'exact' || !chunk.span) continue
+    const sourceText = compiledProgramSt.slice(chunk.span.start.offset, chunk.span.end.offset)
+    if (sourceText !== chunk.text) throw new Error('xml2st source-map span does not match final ST text')
+  }
+  return sourceMap
+}
+
+const statementOverlapsSpan = (
+  statement: IecDebugMetadata['statements'][number],
+  span: IecDebugSourceSpan,
+): boolean => {
+  if (statement.end_line < span.start.line || statement.line > span.end.line) return false
+  if (statement.line === span.end.line && statement.column >= span.end.column) return false
+  if (statement.end_line === span.start.line && statement.end_column <= span.start.column) return false
+  return true
+}
+
+const getPinBinding = (chunk: Xml2stSourceMapChunk, node: GraphicalNode): IecGraphicalPinBinding | undefined => {
+  if (!chunk.span || !chunk.graphical || chunk.graphical.kind !== 'block') return undefined
+  const [direction, rawIndex] = chunk.graphical.path
+  if (direction !== 'input' && direction !== 'output' && direction !== 'inout') return undefined
+  const pinIndex = typeof rawIndex === 'number' ? rawIndex : undefined
+  const variables = getGraphicalNodeData(node).variant?.variables ?? []
+  const variablesForDirection = variables.filter((variable) => {
+    const variableClass = variable.class
+    if (direction === 'input') return variableClass === 'input' || variableClass === 'inOut'
+    if (direction === 'output') return variableClass === 'output' || variableClass === 'inOut'
+    return variableClass === 'inOut'
+  })
+  const formalParameter =
+    (pinIndex === undefined ? undefined : variablesForDirection[pinIndex]?.name) ||
+    (direction === 'input' ? chunk.text.trim() : undefined)
+  return {
+    direction,
+    ...(formalParameter ? { formal_parameter: formalParameter } : {}),
+    ...(pinIndex !== undefined ? { pin_index: pinIndex } : {}),
+    source_spans: [chunk.span],
+  }
+}
+
+const sourceSpanKey = (span: IecDebugSourceSpan): string => `${span.start.offset}:${span.end.offset}`
+
+const mergePinBindings = (chunks: Xml2stSourceMapChunk[], node: GraphicalNode): IecGraphicalPinBinding[] => {
+  const pins = new Map<string, IecGraphicalPinBinding>()
+  for (const chunk of chunks) {
+    const pin = getPinBinding(chunk, node)
+    if (!pin) continue
+    const key = `${pin.direction}:${pin.formal_parameter ?? ''}:${pin.pin_index ?? ''}`
+    const current = pins.get(key)
+    if (!current) {
+      pins.set(key, pin)
+      continue
+    }
+    const knownSpans = new Set(current.source_spans.map(sourceSpanKey))
+    for (const span of pin.source_spans) {
+      if (!knownSpans.has(sourceSpanKey(span))) current.source_spans.push(span)
+    }
+  }
+  return [...pins.values()]
+}
+
+const createGraphicalBinding = (
+  pouId: number,
+  language: 'fbd' | 'ld',
+  node: GraphicalNode,
+  kind: IecGraphicalDebugBinding['kind'],
+  sourceChunks: Xml2stSourceMapChunk[],
+  statements: IecDebugMetadata['statements'],
+  rungId?: string,
+): IecGraphicalDebugBinding | undefined => {
+  const sourceSpans = sourceChunks
+    .flatMap((chunk) => (chunk.span ? [chunk.span] : []))
+    .filter(
+      (span, index, spans) =>
+        spans.findIndex((candidate) => sourceSpanKey(candidate) === sourceSpanKey(span)) === index,
+    )
+  const matchingStatements = statements
+    .filter((statement) => sourceSpans.some((span) => statementOverlapsSpan(statement, span)))
+    .sort((left, right) => left.line - right.line || left.column - right.column || left.id - right.id)
+  const breakpointStatementId = pickBreakpointStatement(matchingStatements)
+  if (breakpointStatementId === 0) return undefined
+  const pins = mergePinBindings(sourceChunks, node)
+  return {
+    pou_id: pouId,
+    language,
+    node_id: node.id,
+    local_id: getGraphicalNodeData(node).numericId ?? node.id,
+    ...(rungId ? { rung_id: rungId } : {}),
+    kind,
+    statement_ids: matchingStatements.map((statement) => statement.id),
+    breakpoint_statement_id: breakpointStatementId,
+    source_line: Math.min(...sourceSpans.map((span) => span.start.line)),
+    source_spans: sourceSpans,
+    pins,
+  }
+}
+
+/**
+ * Joins PC-side LD/FBD node IDs to the stable statement IDs emitted by the
+ * instrumented MatIEC build. The result is editor metadata only; it does not
+ * add protocol data or code to the target runtime.
+ */
+export const buildGraphicalDebugBindings = (
+  projectData: ProjectState['data'],
+  metadata: Pick<IecDebugMetadata, 'pous' | 'statements'>,
+  sourceMap: Xml2stSourceMap,
+): IecGraphicalDebugBinding[] => {
+  const bindings: IecGraphicalDebugBinding[] = []
+
+  for (const pou of projectData.pous) {
+    const language = pou.data.body.language
+    if (language !== 'fbd' && language !== 'ld') continue
+    const metadataPou = metadata.pous.find((candidate) => candidate.name.toUpperCase() === pou.data.name.toUpperCase())
+    if (!metadataPou) continue
+    const statements = metadata.statements.filter((statement) => statement.pou_id === metadataPou.id)
+
+    const bindNode = (
+      node: GraphicalNode,
+      kind: IecGraphicalDebugBinding['kind'],
+      sourceKind: string,
+      rungId?: string,
+    ) => {
+      const localId = Number(getGraphicalNodeData(node).numericId)
+      if (!Number.isSafeInteger(localId)) return
+      const sourceChunks = sourceMap.chunks.filter(
+        (chunk) =>
+          chunk.quality === 'exact' &&
+          chunk.span !== undefined &&
+          chunk.graphical?.pou.toUpperCase() === pou.data.name.toUpperCase() &&
+          chunk.graphical.kind === sourceKind &&
+          chunk.graphical.local_id === localId,
+      )
+      const binding = createGraphicalBinding(metadataPou.id, language, node, kind, sourceChunks, statements, rungId)
+      if (!binding) return
+      bindings.push(binding)
+    }
+
+    if (language === 'fbd') {
+      const nodes = sortGraphicalNodes(pou.data.body.value.rung.nodes as GraphicalNode[])
+      for (const node of nodes) {
+        if (node.type === 'block') {
+          bindNode(node, 'block', 'block')
+          continue
+        }
+        if (node.type !== 'output-variable' && node.type !== 'inout-variable') continue
+        bindNode(node, 'output-variable', 'io_variable')
+      }
+      continue
+    }
+
+    for (const rung of pou.data.body.value.rungs) {
+      const nodes = sortGraphicalNodes(rung.nodes as GraphicalNode[])
+      for (const node of nodes) {
+        if (node.type === 'block') {
+          bindNode(node, 'block', 'block', rung.id)
+          continue
+        }
+        if (node.type !== 'coil') continue
+        bindNode(node, 'coil', 'coil', rung.id)
+      }
+    }
+  }
+
+  return bindings
+}
+
 export const enrichIecDebugMetadata = (
   metadataJson: string,
   variables: IecDebugVariable[],
   instances: IecDebugInstance[] = [],
+  graphicalBindings: IecGraphicalDebugBinding[] = [],
+  sourceIdentity?: IecDebugSourceIdentity,
 ): string => {
   const metadata = JSON.parse(metadataJson) as IecDebugMetadata
   if (metadata.format !== 'eurosonic-plc-debug' || metadata.version !== 1 || metadata.id_algorithm !== 'fnv1a32') {
@@ -319,7 +557,12 @@ export const enrichIecDebugMetadata = (
 
   metadata.variables = variables
   metadata.instances = instances.map(({ c_expression, root_c_symbol, root_type, ...instance }) => instance)
-  metadata.build_id = fnv1a64([...ids.entries()].sort(([left], [right]) => left - right).map(([, key]) => key))
+  metadata.graphical_bindings = graphicalBindings
+  metadata.source_identity = sourceIdentity
+  metadata.build_id = fnv1a64([
+    ...[...ids.entries()].sort(([left], [right]) => left - right).map(([, key]) => key),
+    ...(sourceIdentity ? Object.values(sourceIdentity).map(String) : []),
+  ])
   return `${JSON.stringify(metadata, null, 2)}\n`
 }
 
@@ -333,9 +576,7 @@ export const renderIecDebugVariableAdapter = (
         `    { UINT32_C(${variable.id}), UINT16_C(${variable.type_code}), UINT16_C(${variable.legacy_index}), ${variable.writable ? '1' : '0'} },`,
     )
     .join('\n')
-  const roots = Array.from(
-    new Map(instances.map((instance) => [instance.root_c_symbol, instance])).values(),
-  )
+  const roots = Array.from(new Map(instances.map((instance) => [instance.root_c_symbol, instance])).values())
     .map((instance) => `extern ${instance.root_type} ${instance.root_c_symbol};`)
     .join('\n')
   const instanceDescriptors = instances

@@ -1,6 +1,8 @@
 import { useDebugCompositeKey } from '@hooks/use-debug-composite-key'
 import * as Popover from '@radix-ui/react-popover'
+import { useGraphicalIecBreakpoint } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
+import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
 import { PLCVariable } from '@root/types/PLC'
 import { cn, generateNumericUUID } from '@root/utils'
 import { resolveArrayVariableByName } from '@root/utils/PLC/array-variable-utils'
@@ -61,10 +63,17 @@ const VariableElement = (block: VariableProps) => {
     project: {
       data: { pous, dataTypes },
     },
-    workspace: { isDebuggerVisible, debugVariableIndexes, debugVariableValues, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableIndexes,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugForcedVariables,
+    },
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
+  const { binding: breakpointBinding, hasBreakpoint, toggleBreakpoint } = useGraphicalIecBreakpoint({ nodeId: id })
 
   const inputVariableRef = useRef<
     HTMLTextAreaElement & {
@@ -350,6 +359,24 @@ const VariableElement = (block: VariableProps) => {
     })
   }
 
+  const releaseEditorViewport = () => {
+    updateModelFBD({
+      canEditorZoom: true,
+      hoveringElement: { elementId: null, hovering: false },
+    })
+  }
+
+  const closeContextMenu = () => {
+    setIsContextMenuOpen(false)
+    releaseEditorViewport()
+  }
+
+  const closeForceValueModal = () => {
+    setForceValueModalOpen(false)
+    setForceValue('')
+    releaseEditorViewport()
+  }
+
   const getVariableType = (): string | undefined => {
     if (!data.variable || !data.variable.name) return undefined
     const { pou } = getFBDPouVariablesRungNodeAndEdges(editor, pous, fbdFlows, { nodeId: id })
@@ -375,12 +402,10 @@ const VariableElement = (block: VariableProps) => {
       return undefined
     }
 
-    const value = debugVariableValues.get(compositeKey)
-    if (value === undefined) {
-      return undefined
-    }
-
-    const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
+    const isTrue = parseGraphicalDebugBoolean(
+      getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey),
+    )
+    if (isTrue === undefined) return undefined
     return isTrue ? '#00FF00' : '#0464FB'
   }
 
@@ -389,7 +414,7 @@ const VariableElement = (block: VariableProps) => {
   const handleForceTrue = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -411,7 +436,7 @@ const VariableElement = (block: VariableProps) => {
   const handleForceFalse = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -433,7 +458,7 @@ const VariableElement = (block: VariableProps) => {
   const handleReleaseForce = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -454,14 +479,13 @@ const VariableElement = (block: VariableProps) => {
   const handleForceValue = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
     setForceValueModalOpen(true)
   }
 
   const handleForceValueConfirm = async () => {
     if (!data.variable.name || !forceValue.trim()) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
@@ -469,22 +493,19 @@ const VariableElement = (block: VariableProps) => {
     const variableIndex = debugVariableIndexes.get(compositeKey)
 
     if (variableIndex === undefined) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
     const variableType = getVariableType()
     if (!variableType) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
     const typeInfo = getVariableTypeInfo(variableType)
     if (!typeInfo) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
@@ -500,8 +521,7 @@ const VariableElement = (block: VariableProps) => {
     if (isStringType) {
       const parsedStringValue: string | null = parseStringValue(forceValue)
       if (parsedStringValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = stringToBuffer(parsedStringValue)
@@ -509,8 +529,7 @@ const VariableElement = (block: VariableProps) => {
     } else if (isFloatType) {
       const parsedFloatValue = parseFloatValue(forceValue, typeInfo.byteSize)
       if (parsedFloatValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = floatToBuffer(parsedFloatValue, typeInfo.byteSize)
@@ -518,8 +537,7 @@ const VariableElement = (block: VariableProps) => {
     } else {
       const parsedIntValue = parseIntegerValue(forceValue, typeInfo)
       if (parsedIntValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = integerToBuffer(parsedIntValue, typeInfo.byteSize, typeInfo.signed)
@@ -534,28 +552,41 @@ const VariableElement = (block: VariableProps) => {
       setDebugForcedVariables(newForcedVariables)
     }
 
-    setForceValueModalOpen(false)
-    setForceValue('')
+    closeForceValueModal()
   }
 
   const handleForceValueCancel = () => {
-    setForceValueModalOpen(false)
-    setForceValue('')
+    closeForceValueModal()
   }
 
   const handleForceValueModalChange = (open: boolean) => {
-    setForceValueModalOpen(open)
-    if (!open) {
-      setForceValue('')
+    if (open) {
+      setForceValueModalOpen(true)
+      return
     }
+    closeForceValueModal()
+  }
+
+  const handleContextMenuOpenChange = (open: boolean) => {
+    if (open) {
+      setIsContextMenuOpen(true)
+      return
+    }
+    closeContextMenu()
   }
 
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible || !isAVariable) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
+  }
+
+  const handleToggleBreakpoint = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    closeContextMenu()
+    toggleBreakpoint()
   }
 
   const variableType = getVariableType()
@@ -668,7 +699,7 @@ const VariableElement = (block: VariableProps) => {
               )}
 
               {isDebuggerVisible && contextMenuPosition && (
-                <Popover.Root open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen}>
+                <Popover.Root open={isContextMenuOpen} onOpenChange={handleContextMenuOpenChange}>
                   <Popover.Portal>
                     <Popover.Content
                       align='start'
@@ -702,7 +733,7 @@ const VariableElement = (block: VariableProps) => {
                           </div>
                           {isForced && (
                             <div
-                              className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                              className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                               onClick={(e) => void handleReleaseForce(e)}
                             >
                               <p>Release Force</p>
@@ -719,13 +750,21 @@ const VariableElement = (block: VariableProps) => {
                           </div>
                           {isForced && (
                             <div
-                              className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                              className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                               onClick={(e) => void handleReleaseForce(e)}
                             >
                               <p>Release Force</p>
                             </div>
                           )}
                         </>
+                      )}
+                      {breakpointBinding && (
+                        <div
+                          className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg border-t border-neutral-200 px-2 py-1 hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                          onClick={handleToggleBreakpoint}
+                        >
+                          <p>{hasBreakpoint ? 'Remove Breakpoint' : 'Set Breakpoint'}</p>
+                        </div>
                       )}
                     </Popover.Content>
                   </Popover.Portal>

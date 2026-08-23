@@ -17,9 +17,18 @@ type RungProps = {
   rung: RungLadderState
   nodeDivergences?: string[]
   isDebuggerActive?: boolean
+  selectedInstanceId?: number
 }
 
-export const Rung = ({ className, index, id, rung, nodeDivergences, isDebuggerActive = false }: RungProps) => {
+export const Rung = ({
+  className,
+  index,
+  id,
+  rung,
+  nodeDivergences,
+  isDebuggerActive = false,
+  selectedInstanceId,
+}: RungProps) => {
   const {
     ladderFlows,
     editorActions: { getIsRungOpen },
@@ -73,6 +82,7 @@ export const Rung = ({ className, index, id, rung, nodeDivergences, isDebuggerAc
           })}
           nodeDivergences={nodeDivergences}
           isDebuggerActive={isDebuggerActive}
+          selectedInstanceId={selectedInstanceId}
         />
       )}
     </div>
