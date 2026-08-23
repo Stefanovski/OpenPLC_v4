@@ -307,7 +307,7 @@ const WorkspaceScreen = () => {
 
   useEffect(() => {
     const {
-      workspace: { isDebuggerVisible, debuggerTargetIp, debugVariableIndexes },
+      workspace: { isDebuggerVisible, debuggerTargetIp, debugVariableIndexes, iecDebugMetadata },
       deviceDefinitions,
       workspaceActions,
       project,
@@ -795,26 +795,33 @@ const WorkspaceScreen = () => {
             if (!blockData.variant || blockData.variant.type !== 'function' || !blockData.numericId) return
 
             const blockName = blockData.variant.name.toUpperCase()
-            let baseTypeOutputs = blockData.variant.variables.filter(
-              (variable) =>
-                (variable.class === 'output' || variable.class === 'inOut') && variable.type.definition === 'base-type',
+            let outputVariables = blockData.variant.variables.filter(
+              (variable) => variable.class === 'output' || variable.class === 'inOut',
             )
 
             if (
               blockData.executionControl &&
-              !baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
+              !outputVariables.some((variable) => variable.name.toUpperCase() === 'ENO')
             ) {
-              baseTypeOutputs = [
-                ...baseTypeOutputs,
+              outputVariables = [
+                ...outputVariables,
                 { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
               ]
             }
 
-            baseTypeOutputs.forEach((outputVariable) => {
+            outputVariables.forEach((outputVariable) => {
               const tempVarName = `_TMP_${blockName}${blockData.numericId}_${outputVariable.name}`
               const debugPath = `RES0__${programInstance.name.toUpperCase()}.${tempVarName.toUpperCase()}`
               const index = debugVariableIndexes.get(debugPath)
               if (index === undefined) return
+              const generatedType = iecDebugMetadata?.variables
+                .find((variable) => variable.legacy_index === index)
+                ?.type.toLowerCase()
+              const outputType =
+                outputVariable.type.definition === 'base-type'
+                  ? outputVariable.type.value.toLowerCase()
+                  : generatedType
+              if (!outputType || !baseTypeSchema.safeParse(outputType).success) return
 
               addVariableInfo(index, {
                 pouName: pou.data.name,
@@ -822,7 +829,7 @@ const WorkspaceScreen = () => {
                   name: tempVarName,
                   type: {
                     definition: 'base-type',
-                    value: outputVariable.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                    value: outputType as PLCBaseTypesLowercase,
                   },
                   class: 'local',
                   location: '',
@@ -940,31 +947,35 @@ const WorkspaceScreen = () => {
               const numericId = blockData.numericId
               if (!numericId) return
 
-              let baseTypeOutputs = blockData.variant.variables.filter(
-                (variable) =>
-                  (variable.class === 'output' || variable.class === 'inOut') &&
-                  variable.type.definition === 'base-type',
+              let outputVariables = blockData.variant.variables.filter(
+                (variable) => variable.class === 'output' || variable.class === 'inOut',
               )
 
               // Add ENO if execution control is enabled
               const hasExecutionControl = blockData.executionControl || false
               if (hasExecutionControl) {
-                const hasENO = baseTypeOutputs.some((variable) => variable.name.toUpperCase() === 'ENO')
+                const hasENO = outputVariables.some((variable) => variable.name.toUpperCase() === 'ENO')
                 if (!hasENO) {
-                  baseTypeOutputs = [
-                    ...baseTypeOutputs,
+                  outputVariables = [
+                    ...outputVariables,
                     { name: 'ENO', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
                   ]
                 }
               }
 
-              baseTypeOutputs.forEach((outputVar) => {
+              outputVariables.forEach((outputVar) => {
                 // Debug path uses the full nested path:
                 // RES0__INSTANCE0.FB_B0.FB_A0._TMP_EQ_STATE7415072_ENO
                 const debugPath = `${debugPathPrefix}._TMP_${blockName}${numericId}_${outputVar.name.toUpperCase()}`
                 const index = debugVariableIndexes.get(debugPath)
 
                 if (index !== undefined) {
+                  const generatedType = iecDebugMetadata?.variables
+                    .find((variable) => variable.legacy_index === index)
+                    ?.type.toLowerCase()
+                  const outputType =
+                    outputVar.type.definition === 'base-type' ? outputVar.type.value.toLowerCase() : generatedType
+                  if (!outputType || !baseTypeSchema.safeParse(outputType).success) return
                   // Variable name includes the full nested path for composite key matching
                   const tempVarName = `${variablePathPrefix}._TMP_${blockName}${numericId}_${outputVar.name}`
                   addVariableInfo(index, {
@@ -973,7 +984,7 @@ const WorkspaceScreen = () => {
                       name: tempVarName,
                       type: {
                         definition: 'base-type',
-                        value: outputVar.type.value.toLowerCase() as PLCBaseTypesLowercase,
+                        value: outputType as PLCBaseTypesLowercase,
                       },
                       class: 'local',
                       location: '',

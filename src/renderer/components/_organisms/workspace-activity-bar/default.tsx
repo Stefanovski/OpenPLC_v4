@@ -1166,6 +1166,19 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               level: 'info',
               message: `IEC statement debugger available (capabilities 0x${capabilities.data?.toString(16) ?? '0'}).`,
             })
+
+            // Publish the authoritative MatIEC types before the polling effect starts. Generic FBD function
+            // outputs (for example ADD.OUT: ANY_NUM) need the concrete generated type from this metadata.
+            const metadata = await window.bridge.debuggerReadIecMetadata(projectPath, boardTarget)
+            if (metadata.success && metadata.data) {
+              workspaceActions.setIecDebugMetadata(metadata.data)
+            } else {
+              consoleActions.addLog({
+                id: crypto.randomUUID(),
+                level: 'warning',
+                message: `IEC debug metadata unavailable: ${metadata.error ?? 'Unknown error'}`,
+              })
+            }
           }
 
           workspaceActions.setDebugVariableIndexes(indexMap)
