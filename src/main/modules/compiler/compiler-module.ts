@@ -1,4 +1,5 @@
 import { exec, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -32,8 +33,10 @@ import {
   IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
   parseIecDebugInstances,
   parseIecDebugVariables,
+  parseXml2stSourceMap,
   prepareProjectForIecDebug,
   renderIecDebugVariableAdapter,
+  XML2ST_SOURCE_MAP_FILE,
 } from './iec-debug'
 import { FormatMacAddress } from './utils/formatters'
 
@@ -588,11 +591,15 @@ class CompilerModule {
     const variablesPath = join(sourceTargetFolderPath, 'VARIABLES.csv')
     const debugSourcePath = join(sourceTargetFolderPath, 'debug.c')
     const programStPath = join(sourceTargetFolderPath, 'program.st')
-    const [metadataJson, variablesCsv, debugSource, programSt] = await Promise.all([
+    const sourceMapPath = join(sourceTargetFolderPath, XML2ST_SOURCE_MAP_FILE)
+    const projectXmlPath = join(sourceTargetFolderPath, 'plc.xml')
+    const [metadataJson, variablesCsv, debugSource, programSt, sourceMapJson, projectXml] = await Promise.all([
       readFile(metadataPath, 'utf8'),
       readFile(variablesPath, 'utf8'),
       readFile(debugSourcePath, 'utf8'),
       readFile(programStPath, 'utf8'),
+      readFile(sourceMapPath, 'utf8'),
+      readFile(projectXmlPath, 'utf8'),
     ])
     if (debugSource.includes(IEC_DEBUG_VARIABLE_ADAPTER_MARKER)) {
       throw new Error('IEC debug variable adapter was generated more than once')
@@ -602,13 +609,26 @@ class CompilerModule {
     }
     const instances = parseIecDebugInstances(variablesCsv, parsedMetadata.pous)
     const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv), instances)
+    const sourceMap = parseXml2stSourceMap(sourceMapJson, projectXml, programSt)
     const graphicalBindings = buildGraphicalDebugBindings(
       projectData,
-      programSt,
-      JSON.parse(metadataJson) as Parameters<typeof buildGraphicalDebugBindings>[2],
+      JSON.parse(metadataJson) as Parameters<typeof buildGraphicalDebugBindings>[1],
+      sourceMap,
     )
+    const digest = (value: string) => createHash('sha256').update(value).digest('hex')
+    const sourceIdentity = {
+      schema_version: 1 as const,
+      project_sha256: sourceMap.project_sha256,
+      st_sha256: sourceMap.st_sha256,
+      source_map_sha256: digest(sourceMapJson),
+      matiec_debug_sha256: digest(metadataJson),
+    }
     await Promise.all([
-      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables, instances, graphicalBindings), 'utf8'),
+      writeFile(
+        metadataPath,
+        enrichIecDebugMetadata(metadataJson, variables, instances, graphicalBindings, sourceIdentity),
+        'utf8',
+      ),
       writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables, instances)}`, 'utf8'),
     ])
   }
