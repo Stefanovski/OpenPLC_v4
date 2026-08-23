@@ -696,12 +696,30 @@ class MainProcessBridge implements MainIpcModule {
 
   handleRunCompileProgram = (event: IpcMainEvent, args: Array<string | boolean | null | ProjectState['data']>) => {
     const mainProcessPort = event.ports[0]
-    void this.compilerModule.compileProgram(args, mainProcessPort, this)
+    void this.compilerModule.compileProgram(args, mainProcessPort, this).catch((error: unknown) => {
+      try {
+        mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Unexpected compiler error: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      } finally {
+        mainProcessPort.close()
+      }
+    })
   }
 
   handleRunDebugCompilation = (event: IpcMainEvent, args: Array<string | boolean | null | ProjectState['data']>) => {
     const mainProcessPort = event.ports[0]
-    void this.compilerModule.compileForDebugger(args, mainProcessPort)
+    void this.compilerModule.compileForDebugger(args, mainProcessPort).catch((error: unknown) => {
+      try {
+        mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Unexpected debug compiler error: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      } finally {
+        mainProcessPort.close()
+      }
+    })
   }
 
   // TODO: These handlers are outdated and should be removed.
