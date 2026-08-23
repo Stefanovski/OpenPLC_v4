@@ -359,6 +359,24 @@ const VariableElement = (block: VariableProps) => {
     })
   }
 
+  const releaseEditorViewport = () => {
+    updateModelFBD({
+      canEditorZoom: true,
+      hoveringElement: { elementId: null, hovering: false },
+    })
+  }
+
+  const closeContextMenu = () => {
+    setIsContextMenuOpen(false)
+    releaseEditorViewport()
+  }
+
+  const closeForceValueModal = () => {
+    setForceValueModalOpen(false)
+    setForceValue('')
+    releaseEditorViewport()
+  }
+
   const getVariableType = (): string | undefined => {
     if (!data.variable || !data.variable.name) return undefined
     const { pou } = getFBDPouVariablesRungNodeAndEdges(editor, pous, fbdFlows, { nodeId: id })
@@ -396,7 +414,7 @@ const VariableElement = (block: VariableProps) => {
   const handleForceTrue = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -418,7 +436,7 @@ const VariableElement = (block: VariableProps) => {
   const handleForceFalse = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -440,7 +458,7 @@ const VariableElement = (block: VariableProps) => {
   const handleReleaseForce = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
 
     if (!data.variable.name) return
 
@@ -461,14 +479,13 @@ const VariableElement = (block: VariableProps) => {
   const handleForceValue = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
     setForceValueModalOpen(true)
   }
 
   const handleForceValueConfirm = async () => {
     if (!data.variable.name || !forceValue.trim()) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
@@ -476,22 +493,19 @@ const VariableElement = (block: VariableProps) => {
     const variableIndex = debugVariableIndexes.get(compositeKey)
 
     if (variableIndex === undefined) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
     const variableType = getVariableType()
     if (!variableType) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
     const typeInfo = getVariableTypeInfo(variableType)
     if (!typeInfo) {
-      setForceValueModalOpen(false)
-      setForceValue('')
+      closeForceValueModal()
       return
     }
 
@@ -507,8 +521,7 @@ const VariableElement = (block: VariableProps) => {
     if (isStringType) {
       const parsedStringValue: string | null = parseStringValue(forceValue)
       if (parsedStringValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = stringToBuffer(parsedStringValue)
@@ -516,8 +529,7 @@ const VariableElement = (block: VariableProps) => {
     } else if (isFloatType) {
       const parsedFloatValue = parseFloatValue(forceValue, typeInfo.byteSize)
       if (parsedFloatValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = floatToBuffer(parsedFloatValue, typeInfo.byteSize)
@@ -525,8 +537,7 @@ const VariableElement = (block: VariableProps) => {
     } else {
       const parsedIntValue = parseIntegerValue(forceValue, typeInfo)
       if (parsedIntValue === null) {
-        setForceValueModalOpen(false)
-        setForceValue('')
+        closeForceValueModal()
         return
       }
       valueBuffer = integerToBuffer(parsedIntValue, typeInfo.byteSize, typeInfo.signed)
@@ -541,20 +552,27 @@ const VariableElement = (block: VariableProps) => {
       setDebugForcedVariables(newForcedVariables)
     }
 
-    setForceValueModalOpen(false)
-    setForceValue('')
+    closeForceValueModal()
   }
 
   const handleForceValueCancel = () => {
-    setForceValueModalOpen(false)
-    setForceValue('')
+    closeForceValueModal()
   }
 
   const handleForceValueModalChange = (open: boolean) => {
-    setForceValueModalOpen(open)
-    if (!open) {
-      setForceValue('')
+    if (open) {
+      setForceValueModalOpen(true)
+      return
     }
+    closeForceValueModal()
+  }
+
+  const handleContextMenuOpenChange = (open: boolean) => {
+    if (open) {
+      setIsContextMenuOpen(true)
+      return
+    }
+    closeContextMenu()
   }
 
   const handleClick = (e: React.MouseEvent) => {
@@ -567,7 +585,7 @@ const VariableElement = (block: VariableProps) => {
   const handleToggleBreakpoint = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setIsContextMenuOpen(false)
+    closeContextMenu()
     toggleBreakpoint()
   }
 
@@ -681,7 +699,7 @@ const VariableElement = (block: VariableProps) => {
               )}
 
               {isDebuggerVisible && contextMenuPosition && (
-                <Popover.Root open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen}>
+                <Popover.Root open={isContextMenuOpen} onOpenChange={handleContextMenuOpenChange}>
                   <Popover.Portal>
                     <Popover.Content
                       align='start'
