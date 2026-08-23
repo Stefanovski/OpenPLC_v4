@@ -59,31 +59,22 @@ const DimensionsTable = ({
 
   const handleBlur = (rowIndex: number) => {
     const inputElement = document.getElementById(`dimension-input-${rowIndex}`) as HTMLInputElement
-    const prevRows = tableData
 
     if (inputElement) {
       const inputValue = inputElement.value.trim()
       const validation = arrayValidation({ value: inputValue })
 
       if (!validation.ok || inputValue === '') {
-        addSnapshot(editor.meta.name)
-
-        const newRows = prevRows.filter((_, index) => index !== rowIndex)
-        const optionalSchema = {
-          name: name,
-          dimensions: newRows.map((row) => ({ dimension: row.dimension })),
-        }
-        updateDatatype(name, optionalSchema as PLCArrayDatatype)
-        setArrayTable({ selectedRow: -1 })
+        setArrayTable({ selectedRow: rowIndex })
         toast({
           title: 'Invalid array',
-          description: `The array value is invalid. Pattern: "LEFT_number..RIGHT_number" and RIGHT must be GREATER than LEFT. Example: 0..10.`,
+          description: validation.message,
           variant: 'fail',
         })
       } else {
         addSnapshot(editor.meta.name)
 
-        const newRows = prevRows.map((row, index) => ({
+        const newRows = tableData.map((row, index) => ({
           ...row,
           dimension: index === rowIndex ? inputValue : row.dimension,
         }))
@@ -92,8 +83,8 @@ const DimensionsTable = ({
           dimensions: newRows.map((row) => ({ dimension: row.dimension })),
         }
         updateDatatype(name, optionalSchema as PLCDataType)
+        handleFileAndWorkspaceSavedState(editor.meta.name)
       }
-      handleFileAndWorkspaceSavedState(editor.meta.name)
     }
   }
 

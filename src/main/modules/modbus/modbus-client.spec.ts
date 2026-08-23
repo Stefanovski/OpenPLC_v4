@@ -60,6 +60,15 @@ describe('ModbusTcpClient IEC debugger protocol', () => {
         for (let index = 0; index < value.length; index++) payload[payloadOffset + index] = value[index]
         payloadOffset += value.length
       }
+    } else if (command === IecDebugCommand.CALL_STACK) {
+      payload = Buffer.alloc(25)
+      payload.writeUInt8(2, 0)
+      payload.writeUInt32BE(0x1001, 1)
+      payload.writeUInt32BE(0x2001, 5)
+      payload.writeUInt32BE(0x3001, 9)
+      payload.writeUInt32BE(0x1002, 13)
+      payload.writeUInt32BE(0x2002, 17)
+      payload.writeUInt32BE(0x3002, 21)
     }
 
     const response = Buffer.alloc(11 + payload.length)
@@ -120,6 +129,55 @@ describe('ModbusTcpClient IEC debugger protocol', () => {
       IecDebugCommand.STEP_INTO,
     ])
     expect(requests[0].payload.readUInt32BE(0)).toBe(0x10203040)
+  })
+
+  it('encodes yellow stepping and extended breakpoint commands', async () => {
+    await client.stepOverIecDebug()
+    await client.stepOutIecDebug()
+    await client.setIecDebugBreakpointEx({
+      statementId: 0x10203040,
+      instanceId: 0x50607080,
+      condition: {
+        variableId: 0x11223344,
+        type: 6,
+        operator: '>=',
+        value: Buffer.from([10, 0, 0, 0]),
+      },
+      change: { variableId: 0x55667788, type: 1, size: 1 },
+      hitTarget: 100,
+    })
+    await client.clearIecDebugBreakpointEx(0x10203040, 0x50607080)
+
+    expect(requests.map((request) => request.command)).toEqual([
+      IecDebugCommand.STEP_OVER,
+      IecDebugCommand.STEP_OUT,
+      IecDebugCommand.SET_BREAKPOINT_EX,
+      IecDebugCommand.CLEAR_BREAKPOINT_EX,
+    ])
+    const breakpoint = requests[2].payload
+    expect(breakpoint).toHaveLength(37)
+    expect(breakpoint.readUInt32BE(0)).toBe(0x10203040)
+    expect(breakpoint.readUInt32BE(4)).toBe(0x50607080)
+    expect(breakpoint.readUInt16BE(8)).toBe(3)
+    expect(breakpoint.readUInt8(10)).toBe(4)
+    expect(breakpoint.readUInt16BE(11)).toBe(6)
+    expect(breakpoint.readUInt32BE(13)).toBe(0x11223344)
+    expect(breakpoint.readUInt8(17)).toBe(4)
+    expect(breakpoint.subarray(18, 22)).toEqual(Buffer.from([10, 0, 0, 0]))
+    expect(breakpoint.readUInt16BE(26)).toBe(1)
+    expect(breakpoint.readUInt32BE(28)).toBe(0x55667788)
+    expect(breakpoint.readUInt8(32)).toBe(1)
+    expect(breakpoint.readUInt32BE(33)).toBe(100)
+    expect(requests[3].payload.readUInt32BE(4)).toBe(0x50607080)
+  })
+
+  it('reads the logical IEC call stack', async () => {
+    await expect(client.getIecDebugCallStack()).resolves.toEqual([
+      { pouId: 0x1001, instanceId: 0x2001, statementId: 0x3001 },
+      { pouId: 0x1002, instanceId: 0x2002, statementId: 0x3002 },
+    ])
+    expect(requests).toHaveLength(1)
+    expect(requests[0].command).toBe(IecDebugCommand.CALL_STACK)
   })
 
   it('reads and modifies a typed stable-ID variable', async () => {

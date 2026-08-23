@@ -3,7 +3,10 @@ import { CreatePouFileProps, PouServiceResponse } from '@root/types/IPC/pou-serv
 import { CreateProjectFileProps, IProjectServiceResponse } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import type {
+  IecDebugBreakpoint,
+  IecDebugFrame,
   IecDebugMetadata,
+  IecDebugResumeMode,
   IecDebugStatus,
   IecDebugVariableBatchValue,
   IecDebugVariableRequest,
@@ -313,11 +316,20 @@ const rendererProcessBridge = {
   debuggerSetIecBreakpoint: (statementId: number, enabled: boolean): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('debugger:iec-set-breakpoint', statementId, enabled),
 
+  debuggerSetIecBreakpointEx: (
+    breakpoint: IecDebugBreakpoint,
+    enabled: boolean,
+  ): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-set-breakpoint-ex', breakpoint, enabled),
+
   debuggerClearIecBreakpoints: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('debugger:iec-clear-breakpoints'),
 
-  debuggerResumeIec: (mode: 'continue' | 'step-into'): Promise<{ success: boolean; error?: string }> =>
+  debuggerResumeIec: (mode: IecDebugResumeMode): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('debugger:iec-resume', mode),
+
+  debuggerGetIecCallStack: (): Promise<{ success: boolean; data?: IecDebugFrame[]; error?: string }> =>
+    ipcRenderer.invoke('debugger:iec-call-stack'),
 
   debuggerReadIecVariable: (
     id: number,

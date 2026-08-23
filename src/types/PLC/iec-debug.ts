@@ -25,6 +25,19 @@ export type IecDebugVariable = {
   type_code: number
   legacy_index: number
   writable: boolean
+  instance_id: number
+  path: string
+}
+
+export type IecDebugInstance = {
+  id: number
+  key: string
+  name: string
+  path: string
+  source_path: string
+  pou_id: number
+  parent_id: number
+  kind: 'program' | 'function-block'
 }
 
 export type IecDebugMetadata = {
@@ -35,7 +48,7 @@ export type IecDebugMetadata = {
   pous: IecDebugPou[]
   statements: IecDebugStatement[]
   variables: IecDebugVariable[]
-  instances: unknown[]
+  instances: IecDebugInstance[]
 }
 
 export type IecDebugStatus = {
@@ -62,6 +75,33 @@ export type IecDebugVariableRequest = {
 
 export type IecDebugVariableBatchValue = IecDebugVariableValue & {
   id: number
+}
+
+export type IecDebugFrame = {
+  pouId: number
+  instanceId: number
+  statementId: number
+}
+
+export type IecDebugResumeMode = 'continue' | 'step-into' | 'step-over' | 'step-out'
+
+export type IecDebugConditionOperator = '==' | '!=' | '>' | '>=' | '<' | '<='
+
+export type IecDebugBreakpoint = {
+  statementId: number
+  instanceId?: number
+  condition?: {
+    variableId: number
+    type: number
+    operator: IecDebugConditionOperator
+    value: number[]
+  }
+  change?: {
+    variableId: number
+    type: number
+    size: number
+  }
+  hitTarget?: number
 }
 
 export type IecDebugResponse<T = void> = {

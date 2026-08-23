@@ -1,10 +1,12 @@
 import type { ProjectState } from '@root/renderer/store/slices'
 
 import {
+  bindIecDebugVariablesToInstances,
   enrichIecDebugMetadata,
   fnv1a32,
   IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
   IecDebugVariableType,
+  parseIecDebugInstances,
   parseIecDebugVariables,
   prepareProjectForIecDebug,
   renderIecDebugVariableAdapter,
@@ -91,6 +93,52 @@ describe('IEC debug build helpers', () => {
     expect(adapter).toContain('plc_debug_variable_force')
   })
 
+  it('maps program and nested FB instances to stable IDs and generated C addresses', () => {
+    const csv = `
+// Programs
+0;CONFIG0.RES0.INSTANCE0;MAIN;
+
+// Variables
+0;FB;CONFIG0.RES0.INSTANCE0;CONFIG0.RES0.INSTANCE0;MAIN;;0;
+1;FB;CONFIG0.RES0.INSTANCE0.PUMP1;CONFIG0.RES0.INSTANCE0.PUMP1;FB_PUMP;;0;
+2;VAR;CONFIG0.RES0.INSTANCE0.PUMP1.COUNTER;CONFIG0.RES0.INSTANCE0.PUMP1.COUNTER;DINT;DINT;0;
+3;FB;CONFIG0.RES0.INSTANCE0.PUMP2;CONFIG0.RES0.INSTANCE0.PUMP2;FB_PUMP;;0;
+4;VAR;CONFIG0.RES0.INSTANCE0.PUMP2.COUNTER;CONFIG0.RES0.INSTANCE0.PUMP2.COUNTER;DINT;DINT;0;
+5;VAR;CONFIG0.RES0.INSTANCE0.VALUES.value.table[0];CONFIG0.RES0.INSTANCE0.VALUES.value.table[0];DINT;DINT;0;
+6;STRUCT;CONFIG0.RES0.INSTANCE0.CONFIG;CONFIG0.RES0.INSTANCE0.CONFIG;PUMP_CONFIG;;0;
+7;VAR;CONFIG0.RES0.INSTANCE0.CONFIG.LIMIT;CONFIG0.RES0.INSTANCE0.CONFIG.LIMIT;DINT;DINT;0;
+8;FB;CONFIG0.RES0.INSTANCE0.GROUP1;CONFIG0.RES0.INSTANCE0.GROUP1;FB_GROUP;;0;
+9;FB;CONFIG0.RES0.INSTANCE0.GROUP1.PUMP;CONFIG0.RES0.INSTANCE0.GROUP1.PUMP;FB_PUMP;;0;
+10;VAR;CONFIG0.RES0.INSTANCE0.GROUP1.PUMP.COUNTER;CONFIG0.RES0.INSTANCE0.GROUP1.PUMP.COUNTER;DINT;DINT;0;
+`
+    const pous = [
+      { id: 10, key: 'pou-v1:program:MAIN', name: 'MAIN', kind: 'program' },
+      { id: 20, key: 'pou-v1:function_block:FB_PUMP', name: 'FB_PUMP', kind: 'function_block' },
+      { id: 30, key: 'pou-v1:function_block:FB_GROUP', name: 'FB_GROUP', kind: 'function_block' },
+    ]
+    const instances = parseIecDebugInstances(csv, pous)
+    const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(csv), instances)
+    const pump1 = instances.find((instance) => instance.path === 'MAIN.PUMP1')
+    const pump2 = instances.find((instance) => instance.path === 'MAIN.PUMP2')
+    const group = instances.find((instance) => instance.path === 'MAIN.GROUP1')
+    const nestedPump = instances.find((instance) => instance.path === 'MAIN.GROUP1.PUMP')
+    const adapter = renderIecDebugVariableAdapter(variables, instances)
+
+    expect(instances).toHaveLength(5)
+    expect(pump1?.id).not.toBe(pump2?.id)
+    expect(pump1).toMatchObject({ pou_id: 20, c_expression: 'RES0__INSTANCE0.PUMP1' })
+    expect(variables.find((variable) => variable.path === 'MAIN.PUMP2.COUNTER')?.instance_id).toBe(pump2?.id)
+    expect(variables.find((variable) => variable.path === 'MAIN.VALUES[0]')?.legacy_index).toBe(2)
+    expect(variables.find((variable) => variable.path === 'MAIN.CONFIG.LIMIT')?.legacy_index).toBe(3)
+    expect(nestedPump).toMatchObject({ pou_id: 20, parent_id: group?.id })
+    expect(variables.find((variable) => variable.path === 'MAIN.GROUP1.PUMP.COUNTER')?.instance_id).toBe(
+      nestedPump?.id,
+    )
+    expect(adapter).toContain('extern MAIN RES0__INSTANCE0;')
+    expect(adapter).toContain('(uintptr_t)&(RES0__INSTANCE0.PUMP1)')
+    expect(adapter).toContain('plc_debug_instance_resolve')
+  })
+
   it('rejects a stable-ID collision across metadata categories', () => {
     const variables = [
       {
@@ -101,6 +149,8 @@ describe('IEC debug build helpers', () => {
         type_code: IecDebugVariableType.Dint,
         legacy_index: 0,
         writable: true,
+        instance_id: 0,
+        path: 'MAIN.COUNTER',
       },
     ]
     const metadata = JSON.stringify({

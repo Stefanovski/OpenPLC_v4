@@ -3,7 +3,10 @@ import { CreatePouFileProps } from '@root/types/IPC/pou-service'
 import { CreateProjectFileProps } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import type {
+  IecDebugBreakpoint,
+  IecDebugFrame,
   IecDebugMetadata,
+  IecDebugResumeMode,
   IecDebugStatus,
   IecDebugVariableBatchValue,
   IecDebugVariableRequest,
@@ -521,8 +524,10 @@ class MainProcessBridge implements MainIpcModule {
     this.ipcMain.handle('debugger:iec-capabilities', this.handleDebuggerIecCapabilities)
     this.ipcMain.handle('debugger:iec-status', this.handleDebuggerIecStatus)
     this.ipcMain.handle('debugger:iec-set-breakpoint', this.handleDebuggerIecSetBreakpoint)
+    this.ipcMain.handle('debugger:iec-set-breakpoint-ex', this.handleDebuggerIecSetBreakpointEx)
     this.ipcMain.handle('debugger:iec-clear-breakpoints', this.handleDebuggerIecClearBreakpoints)
     this.ipcMain.handle('debugger:iec-resume', this.handleDebuggerIecResume)
+    this.ipcMain.handle('debugger:iec-call-stack', this.handleDebuggerIecCallStack)
     this.ipcMain.handle('debugger:iec-read-variable', this.handleDebuggerIecReadVariable)
     this.ipcMain.handle('debugger:iec-read-variables', this.handleDebuggerIecReadVariables)
     this.ipcMain.handle('debugger:iec-modify-variable', this.handleDebuggerIecModifyVariable)
@@ -1220,16 +1225,59 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
 
+  handleDebuggerIecSetBreakpointEx = async (
+    _event: IpcMainInvokeEvent,
+    breakpoint: IecDebugBreakpoint,
+    enabled: boolean,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (!breakpoint || !Number.isInteger(breakpoint.statementId) || breakpoint.statementId <= 0) {
+        throw new Error('Invalid IEC debug statement ID')
+      }
+      const client = this.getIecDebugTcpClient()
+      if (enabled) {
+        if (breakpoint.condition) {
+          assertIecDebugVariableDescriptor(breakpoint.condition.variableId, breakpoint.condition.type)
+        }
+        if (breakpoint.change) {
+          assertIecDebugVariableDescriptor(breakpoint.change.variableId, breakpoint.change.type)
+        }
+        await client.setIecDebugBreakpointEx({
+          ...breakpoint,
+          condition: breakpoint.condition
+            ? { ...breakpoint.condition, value: Buffer.from(breakpoint.condition.value) }
+            : undefined,
+        })
+      } else {
+        await client.clearIecDebugBreakpointEx(breakpoint.statementId, breakpoint.instanceId)
+      }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
   handleDebuggerIecResume = async (
     _event: IpcMainInvokeEvent,
-    mode: 'continue' | 'step-into',
+    mode: IecDebugResumeMode,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const client = this.getIecDebugTcpClient()
       if (mode === 'continue') await client.continueIecDebug()
       else if (mode === 'step-into') await client.stepIntoIecDebug()
+      else if (mode === 'step-over') await client.stepOverIecDebug()
+      else if (mode === 'step-out') await client.stepOutIecDebug()
       else return { success: false, error: `Unsupported IEC debug resume mode '${String(mode)}'` }
       return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleDebuggerIecCallStack = async (): Promise<{ success: boolean; data?: IecDebugFrame[]; error?: string }> => {
+    try {
+      const data = await this.getIecDebugTcpClient().getIecDebugCallStack()
+      return { success: true, data }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }

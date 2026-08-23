@@ -24,6 +24,9 @@ export enum IecDebugCommand {
   FORCE_VARIABLE = 11,
   UNFORCE_VARIABLE = 12,
   READ_VARIABLES = 13,
+  SET_BREAKPOINT_EX = 14,
+  CLEAR_BREAKPOINT_EX = 15,
+  CALL_STACK = 16,
 }
 
 export enum IecDebugResult {
@@ -73,6 +76,20 @@ export type IecDebugVariableRequest = {
 
 export type IecDebugVariableBatchValue = IecDebugVariableValue & {
   id: number
+}
+
+export type IecDebugCallFrame = {
+  pouId: number
+  instanceId: number
+  statementId: number
+}
+
+export type IecDebugBreakpoint = {
+  statementId: number
+  instanceId?: number
+  condition?: { variableId: number; type: number; operator: '==' | '!=' | '>' | '>=' | '<' | '<='; value: Buffer }
+  change?: { variableId: number; type: number; size: number }
+  hitTarget?: number
 }
 
 export enum ModbusDebugResponse {
@@ -248,6 +265,71 @@ export class ModbusTcpClient {
 
   async stepIntoIecDebug(): Promise<void> {
     await this.sendIecDebugCommand(IecDebugCommand.STEP_INTO)
+  }
+
+  async stepOverIecDebug(): Promise<void> {
+    await this.sendIecDebugCommand(IecDebugCommand.STEP_OVER)
+  }
+
+  async stepOutIecDebug(): Promise<void> {
+    await this.sendIecDebugCommand(IecDebugCommand.STEP_OUT)
+  }
+
+  async setIecDebugBreakpointEx(breakpoint: IecDebugBreakpoint): Promise<void> {
+    const operators: Record<NonNullable<IecDebugBreakpoint['condition']>['operator'], number> = {
+      '==': 1,
+      '!=': 2,
+      '>': 3,
+      '>=': 4,
+      '<': 5,
+      '<=': 6,
+    }
+    const request = Buffer.alloc(37)
+    const condition = breakpoint.condition
+    const change = breakpoint.change
+    if (condition && (condition.value.length === 0 || condition.value.length > 8)) {
+      throw new Error('IEC debug condition values must contain 1 to 8 bytes')
+    }
+    if (change && (change.size <= 0 || change.size > 8)) {
+      throw new Error('IEC debug change values must contain 1 to 8 bytes')
+    }
+    request.writeUInt32BE(breakpoint.statementId, 0)
+    request.writeUInt32BE(breakpoint.instanceId ?? 0, 4)
+    request.writeUInt16BE((condition ? 1 : 0) | (change ? 2 : 0), 8)
+    request.writeUInt8(condition ? operators[condition.operator] : 0, 10)
+    request.writeUInt16BE(condition?.type ?? 0, 11)
+    request.writeUInt32BE(condition?.variableId ?? 0, 13)
+    request.writeUInt8(condition?.value.length ?? 0, 17)
+    if (condition) {
+      for (let index = 0; index < Math.min(condition.value.length, 8); index++) request[18 + index] = condition.value[index]
+    }
+    request.writeUInt16BE(change?.type ?? 0, 26)
+    request.writeUInt32BE(change?.variableId ?? 0, 28)
+    request.writeUInt8(change?.size ?? 0, 32)
+    request.writeUInt32BE(breakpoint.hitTarget ?? 0, 33)
+    await this.sendIecDebugCommand(IecDebugCommand.SET_BREAKPOINT_EX, request)
+  }
+
+  async clearIecDebugBreakpointEx(statementId: number, instanceId = 0): Promise<void> {
+    const request = Buffer.alloc(8)
+    request.writeUInt32BE(statementId, 0)
+    request.writeUInt32BE(instanceId, 4)
+    await this.sendIecDebugCommand(IecDebugCommand.CLEAR_BREAKPOINT_EX, request)
+  }
+
+  async getIecDebugCallStack(): Promise<IecDebugCallFrame[]> {
+    const payload = await this.sendIecDebugCommand(IecDebugCommand.CALL_STACK)
+    if (payload.length < 1) throw new Error('Invalid IEC debug call stack response')
+    const count = payload.readUInt8(0)
+    if (payload.length !== 1 + count * 12) throw new Error('Incomplete IEC debug call stack response')
+    return Array.from({ length: count }, (_, index) => {
+      const offset = 1 + index * 12
+      return {
+        pouId: payload.readUInt32BE(offset),
+        instanceId: payload.readUInt32BE(offset + 4),
+        statementId: payload.readUInt32BE(offset + 8),
+      }
+    })
   }
 
   async readIecDebugVariable(id: number, type: number): Promise<IecDebugVariableValue> {

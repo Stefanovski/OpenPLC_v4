@@ -1,6 +1,6 @@
 import type { DebugTreeNode } from '@root/types/debugger'
 import type { FbInstanceInfo } from '@root/types/debugger'
-import type { IecDebugMetadata, IecDebugStatus } from '@root/types/PLC/iec-debug'
+import type { IecDebugFrame, IecDebugMetadata, IecDebugStatus } from '@root/types/PLC/iec-debug'
 import { z } from 'zod'
 
 const workspaceProjectTreeLeafSchema = z
@@ -35,6 +35,8 @@ const workspaceStateSchema = z.object({
     fbSelectedInstance: z.custom<Map<string, string>>((val) => val instanceof Map),
     iecDebugMetadata: z.custom<IecDebugMetadata>().nullable(),
     iecDebugStatus: z.custom<IecDebugStatus>().nullable(),
+    iecDebugCapabilities: z.number(),
+    iecDebugCallStack: z.array(z.custom<IecDebugFrame>()),
     iecDebugBreakpoints: z.custom<Set<number>>((val) => val instanceof Set),
     isPlcLogsVisible: z.boolean(),
     plcLogs: z.string(),
@@ -95,6 +97,8 @@ const workspaceActionsSchema = z.object({
   clearFbDebugContext: z.function().returns(z.void()),
   setIecDebugMetadata: z.function().args(z.custom<IecDebugMetadata>().nullable()).returns(z.void()),
   setIecDebugStatus: z.function().args(z.custom<IecDebugStatus>().nullable()).returns(z.void()),
+  setIecDebugCapabilities: z.function().args(z.number()).returns(z.void()),
+  setIecDebugCallStack: z.function().args(z.array(z.custom<IecDebugFrame>())).returns(z.void()),
   setIecDebugBreakpoints: z.function().args(z.custom<Set<number>>()).returns(z.void()),
   removeDebugVariable: z.function().args(z.string()).returns(z.void()),
   setPlcLogsVisible: z.function().args(z.boolean()).returns(z.void()),

@@ -28,6 +28,8 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
     fbSelectedInstance: new Map(),
     iecDebugMetadata: null,
     iecDebugStatus: null,
+    iecDebugCapabilities: 0,
+    iecDebugCallStack: [],
     iecDebugBreakpoints: new Set(),
     isPlcLogsVisible: false,
     plcLogs: '',
@@ -152,6 +154,8 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
           if (!isVisible) {
             workspace.iecDebugMetadata = null
             workspace.iecDebugStatus = null
+            workspace.iecDebugCapabilities = 0
+            workspace.iecDebugCallStack = []
             workspace.iecDebugBreakpoints = new Set()
           }
         }),
@@ -240,6 +244,20 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
       setState(
         produce(({ workspace }: WorkspaceSlice) => {
           workspace.iecDebugStatus = status
+        }),
+      )
+    },
+    setIecDebugCapabilities: (capabilities): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.iecDebugCapabilities = capabilities
+        }),
+      )
+    },
+    setIecDebugCallStack: (callStack): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.iecDebugCallStack = callStack
         }),
       )
     },

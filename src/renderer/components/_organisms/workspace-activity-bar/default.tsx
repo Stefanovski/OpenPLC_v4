@@ -724,6 +724,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               targetIpAddress,
               isRuntimeTarget,
               processedProjectData as ProjectDataWithCpp,
+              true,
             )
           }
         },
@@ -752,11 +753,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     targetIpAddress: string | undefined,
     isRuntimeTarget: boolean,
     debugProjectData: ProjectDataWithCpp,
+    hasFreshDebugCompilation = false,
   ) => {
     const { consoleActions, workspaceActions, runtimeConnection, deviceActions } = useOpenPLCStore.getState()
     const useIecStatementDebugger = boardTarget === 'Eurosonic_Gen2' && connectionType === 'tcp' && !isRuntimeTarget
 
-    const uploadDebugProgramAndRetry = async () => {
+    const uploadDebugProgramAndRetry = async (reuseDebugCompilation = false) => {
       const boardCore = availableBoards.get(boardTarget)?.core || null
       const runtimeJwtToken = useOpenPLCStore.getState().runtimeConnection.jwtToken || null
 
@@ -779,6 +781,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           targetIpAddress ?? '',
           runtimeJwtToken,
           useIecStatementDebugger,
+          reuseDebugCompilation,
         ],
         (data: {
           logLevel?: 'info' | 'error' | 'warning'
@@ -828,6 +831,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
                 targetIpAddress,
                 isRuntimeTarget,
                 debugProjectData,
+                false,
               )
             }, 2000)
           }
@@ -1188,6 +1192,16 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           level: 'warning',
           message: `MD5 mismatch. Target: ${verifyResult.targetMd5}, Expected: ${expectedMd5}`,
         })
+
+        if (hasFreshDebugCompilation) {
+          consoleActions.addLog({
+            id: crypto.randomUUID(),
+            level: 'info',
+            message: 'A new debug program was generated. Uploading it without rebuilding or asking again...',
+          })
+          void uploadDebugProgramAndRetry(true)
+          return
+        }
 
         const response = await showDebuggerMessage(
           'warning',

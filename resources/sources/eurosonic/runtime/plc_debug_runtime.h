@@ -12,12 +12,24 @@ extern "C" {
 #define PLC_DEBUG_INTERFACE_VERSION UINT16_C(1)
 #define PLC_DEBUG_INSTANCE_NONE UINT32_C(0)
 #define PLC_DEBUG_MAX_BREAKPOINTS 64U
+#define PLC_DEBUG_MAX_CALL_DEPTH 16U
+#define PLC_DEBUG_MAX_BREAKPOINT_VALUE_SIZE 8U
 
 #define PLC_DEBUG_CAP_BREAKPOINTS (UINT32_C(1) << 0)
 #define PLC_DEBUG_CAP_STEP_INTO (UINT32_C(1) << 1)
 #define PLC_DEBUG_CAP_VARIABLE_READ (UINT32_C(1) << 2)
 #define PLC_DEBUG_CAP_VARIABLE_WRITE (UINT32_C(1) << 3)
 #define PLC_DEBUG_CAP_FORCE (UINT32_C(1) << 4)
+#define PLC_DEBUG_CAP_STEP_OVER (UINT32_C(1) << 5)
+#define PLC_DEBUG_CAP_STEP_OUT (UINT32_C(1) << 6)
+#define PLC_DEBUG_CAP_CALL_STACK (UINT32_C(1) << 7)
+#define PLC_DEBUG_CAP_INSTANCE_BREAKPOINTS (UINT32_C(1) << 8)
+#define PLC_DEBUG_CAP_CONDITIONAL_BREAKPOINTS (UINT32_C(1) << 9)
+#define PLC_DEBUG_CAP_BREAK_ON_CHANGE (UINT32_C(1) << 10)
+#define PLC_DEBUG_CAP_HIT_COUNT (UINT32_C(1) << 11)
+
+#define PLC_DEBUG_BREAKPOINT_CONDITION (UINT16_C(1) << 0)
+#define PLC_DEBUG_BREAKPOINT_CHANGE (UINT16_C(1) << 1)
 
 typedef enum
 {
@@ -69,6 +81,43 @@ typedef enum
     PLC_DEBUG_VARIABLE_LWORD = 20
 } plc_debug_variable_type_t;
 
+typedef enum
+{
+    PLC_DEBUG_CONDITION_NONE = 0,
+    PLC_DEBUG_CONDITION_EQUAL = 1,
+    PLC_DEBUG_CONDITION_NOT_EQUAL = 2,
+    PLC_DEBUG_CONDITION_GREATER = 3,
+    PLC_DEBUG_CONDITION_GREATER_OR_EQUAL = 4,
+    PLC_DEBUG_CONDITION_LESS = 5,
+    PLC_DEBUG_CONDITION_LESS_OR_EQUAL = 6
+} plc_debug_condition_t;
+
+typedef struct
+{
+    uint32_t statement_id;
+    uint32_t instance_id;
+    uint32_t condition_variable_id;
+    uint32_t change_variable_id;
+    uint32_t hit_target;
+    uint32_t hit_count;
+    uint16_t condition_type;
+    uint16_t change_type;
+    uint16_t flags;
+    uint8_t condition_operator;
+    uint8_t condition_size;
+    uint8_t condition_value[PLC_DEBUG_MAX_BREAKPOINT_VALUE_SIZE];
+    uint8_t change_size;
+    uint8_t change_initialized;
+    uint8_t change_value[PLC_DEBUG_MAX_BREAKPOINT_VALUE_SIZE];
+} plc_debug_breakpoint_t;
+
+typedef struct
+{
+    uint32_t pou_id;
+    uint32_t instance_id;
+    uint32_t statement_id;
+} plc_debug_frame_t;
+
 typedef struct
 {
     uint32_t state;
@@ -109,6 +158,12 @@ typedef struct
     plc_debug_result_t (*write_variable)(uint32_t id, uint16_t expected_type, const void *value, uint16_t size);
     plc_debug_result_t (*force_variable)(uint32_t id, uint16_t expected_type, const void *value, uint16_t size);
     plc_debug_result_t (*unforce_variable)(uint32_t id);
+    /* Optional GELB extension. Check size/capabilities before dereferencing from older firmware. */
+    plc_debug_result_t (*step_over)(void);
+    plc_debug_result_t (*step_out)(void);
+    plc_debug_result_t (*get_call_stack)(plc_debug_frame_t *frames, uint16_t capacity, uint16_t *count);
+    plc_debug_result_t (*set_breakpoint_ex)(const plc_debug_breakpoint_t *breakpoint);
+    plc_debug_result_t (*clear_breakpoint_ex)(uint32_t statement_id, uint32_t instance_id);
 } plc_debug_interface_v1_t;
 
 extern const plc_debug_interface_v1_t plc_debug_interface_v1;
@@ -122,8 +177,10 @@ plc_debug_result_t plc_debug_variable_read(uint32_t id, uint16_t expected_type, 
 plc_debug_result_t plc_debug_variable_write(uint32_t id, uint16_t expected_type, const void *value, uint16_t size);
 plc_debug_result_t plc_debug_variable_force(uint32_t id, uint16_t expected_type, const void *value, uint16_t size);
 plc_debug_result_t plc_debug_variable_unforce(uint32_t id);
+uint32_t plc_debug_instance_resolve(uint32_t pou_id, uintptr_t address);
 
 extern volatile uint32_t plc_debug_active;
+extern volatile uint32_t plc_debug_context_active;
 
 #if defined(__GNUC__)
 #define PLC_DEBUG_UNLIKELY(value) __builtin_expect(!!(value), 0)
@@ -132,11 +189,11 @@ extern volatile uint32_t plc_debug_active;
 #endif
 
 #define PLC_DBG_ENTER(pou_id, instance_id) \
-    do { if (PLC_DEBUG_UNLIKELY(plc_debug_active)) plc_debug_enter((pou_id), (instance_id)); } while (0)
+    do { if (PLC_DEBUG_UNLIKELY(plc_debug_context_active)) plc_debug_enter((pou_id), (instance_id)); } while (0)
 #define PLC_DBG_POINT(statement_id, pou_id, instance_id) \
     do { if (PLC_DEBUG_UNLIKELY(plc_debug_active)) plc_debug_point((statement_id), (pou_id), (instance_id)); } while (0)
 #define PLC_DBG_LEAVE(pou_id, instance_id) \
-    do { if (PLC_DEBUG_UNLIKELY(plc_debug_active)) plc_debug_leave((pou_id), (instance_id)); } while (0)
+    do { if (PLC_DEBUG_UNLIKELY(plc_debug_context_active)) plc_debug_leave((pou_id), (instance_id)); } while (0)
 #define PLC_DBG_EVAL(statement_id, pou_id, instance_id, expression) \
     (PLC_DEBUG_UNLIKELY(plc_debug_active) \
          ? (plc_debug_point((statement_id), (pou_id), (instance_id)), (expression)) \

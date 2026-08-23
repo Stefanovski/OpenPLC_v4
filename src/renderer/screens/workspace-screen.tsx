@@ -39,6 +39,7 @@ import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../u
 
 const DEBUGGER_POLL_INTERVAL_MS = 50
 const IEC_DEBUGGER_POLL_INTERVAL_MS = 100
+const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
 
 const WorkspaceScreen = () => {
@@ -157,6 +158,7 @@ const WorkspaceScreen = () => {
   const isMountedRef = useRef(true)
   const graphListRef = useRef<string[]>([])
   const batchOffsetRef = useRef<number>(0)
+  const lastIecNavigationHaltRef = useRef<string | null>(null)
 
   useEffect(() => {
     isMountedRef.current = true
@@ -176,13 +178,52 @@ const WorkspaceScreen = () => {
     let active = true
     let polling = false
     let pollingInterval: NodeJS.Timeout | null = null
+    let debugCapabilities = 0
 
     const pollStatus = async () => {
       if (!active || polling) return
       polling = true
       try {
         const result = await window.bridge.debuggerGetIecStatus()
-        if (active && result.success && result.data) workspaceActions.setIecDebugStatus(result.data)
+        if (active && result.success && result.data) {
+          workspaceActions.setIecDebugStatus(result.data)
+          if (result.data.state === 1) {
+            if (lastIecNavigationHaltRef.current !== result.data.haltCount) {
+              // A status request may have been in flight while Continue was pressed. Confirm the halt before
+              // navigating, otherwise that stale response can switch Monaco back to the previously halted POU.
+              const confirmed = await window.bridge.debuggerGetIecStatus()
+              if (!active || !confirmed.success || !confirmed.data) return
+              workspaceActions.setIecDebugStatus(confirmed.data)
+              if (confirmed.data.state !== 1 || confirmed.data.haltCount !== result.data.haltCount) {
+                workspaceActions.setIecDebugCallStack([])
+                return
+              }
+
+              lastIecNavigationHaltRef.current = confirmed.data.haltCount
+              if ((debugCapabilities & IEC_DEBUG_CAP_CALL_STACK) !== 0) {
+                const stack = await window.bridge.debuggerGetIecCallStack()
+                if (active && stack.success && stack.data) workspaceActions.setIecDebugCallStack(stack.data)
+              }
+              const state = useOpenPLCStore.getState()
+              const debugPou = state.workspace.iecDebugMetadata?.pous.find(
+                (candidate) => candidate.id === confirmed.data?.currentPouId,
+              )
+              const projectPou = state.project.data.pous.find(
+                (candidate) => candidate.data.name.toUpperCase() === debugPou?.name.toUpperCase(),
+              )
+              if (projectPou?.data.language === 'st' && state.editor.meta.name !== projectPou.data.name) {
+                const directory = projectPou.type === 'function-block' ? 'function-blocks' : `${projectPou.type}s`
+                state.sharedWorkspaceActions.openFile({
+                  name: projectPou.data.name,
+                  path: `/pous/${directory}/${projectPou.data.name}.json`,
+                  elementType: { type: projectPou.type, language: projectPou.data.language },
+                })
+              }
+            }
+          } else {
+            workspaceActions.setIecDebugCallStack([])
+          }
+        }
       } finally {
         polling = false
       }
@@ -191,6 +232,8 @@ const WorkspaceScreen = () => {
     const start = async () => {
       const capabilities = await window.bridge.debuggerGetIecCapabilities()
       if (!active || !capabilities.success) return
+      debugCapabilities = capabilities.data ?? 0
+      workspaceActions.setIecDebugCapabilities(debugCapabilities)
 
       const metadata = await window.bridge.debuggerReadIecMetadata(
         project.meta.path,
@@ -217,6 +260,9 @@ const WorkspaceScreen = () => {
       if (pollingInterval) clearInterval(pollingInterval)
       workspaceActions.setIecDebugMetadata(null)
       workspaceActions.setIecDebugStatus(null)
+      workspaceActions.setIecDebugCapabilities(0)
+      workspaceActions.setIecDebugCallStack([])
+      lastIecNavigationHaltRef.current = null
     }
   }, [isDebuggerVisible])
 

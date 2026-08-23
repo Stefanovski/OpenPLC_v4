@@ -2,7 +2,7 @@ import { DimensionsModal } from '@root/renderer/components/_atoms/dimensions-mod
 import { toast } from '@root/renderer/components/_features/[app]/toast/use-toast'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { arrayValidation } from '@root/renderer/store/slices/workspace/utils/variables'
-import { BaseType, baseTypeSchema, PLCStructureVariable } from '@root/types/PLC/open-plc'
+import { BaseType, baseTypeSchema, PLCStructureDatatype, PLCStructureVariable } from '@root/types/PLC/open-plc'
 import { useEffect, useState } from 'react'
 
 type ArrayModalProps = {
@@ -67,8 +67,11 @@ export const ArrayModal = ({
   const [typeValue, setTypeValue] = useState<string>('dint')
 
   useEffect(() => {
-    const structure = dataTypes.filter((dataType) => dataType.name === name && dataType.derivation === 'structure')[0]
-    if (structure.derivation !== 'structure') return
+    const structure = dataTypes.find(
+      (dataType): dataType is PLCStructureDatatype =>
+        dataType.name === name && dataType.derivation === 'structure',
+    )
+    if (!structure) return
 
     const variable = structure.variable.find((variable) => variable.name === variableName)
     if (!variable) return

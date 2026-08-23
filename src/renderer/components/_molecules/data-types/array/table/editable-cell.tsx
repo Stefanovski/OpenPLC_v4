@@ -37,6 +37,7 @@ const DimensionCell = ({ getValue, row, id, selectedRow, onBlur, editable }: Edi
       id={id}
       ref={inputRef}
       value={cellValue}
+      placeholder='0..2'
       onChange={(e) => setCellValue(e.target.value)}
       onBlur={onBlur}
       onKeyDown={handleKeyDown}
