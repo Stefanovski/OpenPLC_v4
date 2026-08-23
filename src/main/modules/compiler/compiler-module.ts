@@ -1,4 +1,5 @@
 import { exec, spawn } from 'node:child_process'
+import { createReadStream, existsSync, statSync } from 'node:fs'
 import { promises as fs } from 'node:fs'
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
@@ -20,6 +21,7 @@ import { findEmptyFbdVariables } from '@root/utils/PLC/validate-empty-fbd-variab
 import { app as electronApp, dialog } from 'electron'
 import type { MessagePortMain } from 'electron/main'
 import JSZip from 'jszip'
+import * as tftp from 'tftp'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import {
@@ -93,6 +95,8 @@ class CompilerModule {
   // Runtime API polling configuration (important-comment)
   static readonly COMPILATION_STATUS_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes (important-comment)
   static readonly COMPILATION_STATUS_POLL_INTERVAL_MS = 1000 // 1 second (important-comment)
+  static readonly TFTP_REQUEST_TIMEOUT_MS = 5000
+  static readonly TFTP_UPLOAD_TIMEOUT_MS = 30_000
 
   constructor() {
     this.binaryDirectoryPath = this.#constructBinaryDirectoryPath()
@@ -1335,16 +1339,12 @@ class CompilerModule {
     runtimeIpAddress?: string | null
     runtimeJwtToken?: string | null
   }) {
-    const nodePath = require('node:path')
-    const fs = require('node:fs')
-    const tftp = require('tftp')
-
     if (!compilationPath) {
       handleOutputData('Error: compilationPath is missing.', 'error')
       return
     }
 
-    const binaryPath = nodePath.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
+    const binaryPath = path.join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
 
     if (!runtimeIpAddress) {
       handleOutputData('No IP address provided for TFTP upload.', 'error')
@@ -1353,12 +1353,13 @@ class CompilerModule {
 
     handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
 
-    if (!fs.existsSync(binaryPath)) {
+    if (!existsSync(binaryPath)) {
       handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error')
       return
     }
 
-    const remoteName = nodePath.basename(binaryPath)
+    const remoteName = path.basename(binaryPath)
+    const binarySize = statSync(binaryPath).size
 
     try {
       // ==========================================
@@ -1367,7 +1368,9 @@ class CompilerModule {
       handleOutputData('Stopping PLC thread on board (MODE_SAFEOP)...', 'info')
       try {
         // Nutzt die native fetch-API von Node.js/Electron
-        await fetch(`http://${runtimeIpAddress}/api/plcstop`)
+        await fetch(`http://${runtimeIpAddress}/api/plcstop`, {
+          signal: AbortSignal.timeout(CompilerModule.TFTP_REQUEST_TIMEOUT_MS),
+        })
 
         // 500ms warten, damit der Task auf dem Board Zeit hat, sich sauber zu beenden
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -1382,22 +1385,50 @@ class CompilerModule {
       // ==========================================
       handleOutputData(`Starting TFTP upload to ${runtimeIpAddress}:69...`, 'info')
 
-      // Wir wrappen den TFTP-Callback in ein Promise, damit 'await' funktioniert
+      // Keep an explicit handle to both streams so a stalled UDP transfer can be
+      // terminated. The tftp package timeout applies to individual retries, but
+      // must not be allowed to hold the compiler MessagePort open indefinitely.
       await new Promise<void>((resolve, reject) => {
         const client = tftp.createClient({
           host: runtimeIpAddress,
           port: 69,
-          timeout: 5000,
+          retries: 3,
+          timeout: CompilerModule.TFTP_REQUEST_TIMEOUT_MS,
+        })
+        const readStream = createReadStream(binaryPath)
+        let settled = false
+
+        const complete = (error?: Error) => {
+          if (settled) return
+          settled = true
+          clearTimeout(uploadTimeout)
+          if (error) reject(error)
+          else resolve()
+        }
+
+        const putStream = client.createPutStream(remoteName, { size: binarySize })
+
+        const uploadTimeout = setTimeout(() => {
+          const timeoutSeconds = CompilerModule.TFTP_UPLOAD_TIMEOUT_MS / 1000
+          const timeoutError = new Error(`TFTP upload timed out after ${timeoutSeconds} seconds`)
+          readStream.unpipe(putStream)
+          readStream.destroy()
+          putStream.abort(timeoutError)
+          complete(timeoutError)
+        }, CompilerModule.TFTP_UPLOAD_TIMEOUT_MS)
+
+        readStream.once('error', (error) => {
+          putStream.abort(error)
+          complete(error)
+        })
+        putStream.once('error', (error: Error) => complete(error))
+        putStream.once('abort', () => complete(new Error('TFTP upload was aborted')))
+        putStream.once('finish', () => {
+          handleOutputData('TFTP Upload successful!', 'info')
+          complete()
         })
 
-        client.put(binaryPath, remoteName, (err: Error | null) => {
-          if (err) {
-            reject(err)
-          } else {
-            handleOutputData('TFTP Upload successful!', 'info')
-            resolve()
-          }
-        })
+        readStream.pipe(putStream)
       })
 
       // ==========================================
@@ -1405,7 +1436,9 @@ class CompilerModule {
       // ==========================================
       handleOutputData('Starting PLC thread with new program (MODE_OP)...', 'info')
       try {
-        await fetch(`http://${runtimeIpAddress}/api/plcstart`)
+        await fetch(`http://${runtimeIpAddress}/api/plcstart`, {
+          signal: AbortSignal.timeout(CompilerModule.TFTP_REQUEST_TIMEOUT_MS),
+        })
       } catch (fetchErr) {
         handleOutputData(`Warning: /api/start failed: ${(fetchErr as Error).message}`, 'error')
       }
