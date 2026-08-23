@@ -85,13 +85,20 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false, 
 
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null)
   const reactFlowViewportRef = useRef<HTMLDivElement>(null)
+  const lastAutoFocusKeyRef = useRef<string | null>(null)
 
   const [insideViewport, setInsideViewport] = useState(false)
   const [mousePosition, setMousePosition] = useState<XYPosition>({ x: 0, y: 0 })
 
   useEffect(() => {
-    if (!reactFlowInstance || iecDebugStatus?.state !== 1) return
+    if (iecDebugStatus?.state !== 1) {
+      lastAutoFocusKeyRef.current = null
+      return
+    }
+    if (!reactFlowInstance) return
     if (selectedInstanceId !== undefined && iecDebugStatus.currentInstanceId !== selectedInstanceId) return
+    const focusKey = `${iecDebugStatus.haltCount}:${iecDebugStatus.currentPouId}:${iecDebugStatus.currentStatementId}:${iecDebugStatus.currentInstanceId}`
+    if (lastAutoFocusKeyRef.current === focusKey) return
     const currentBinding = getGraphicalDebugSourcesForStatement(
       iecDebugMetadata,
       iecDebugStatus.currentPouId,
@@ -100,8 +107,20 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false, 
     if (currentBinding?.language !== 'fbd') return
     if (!currentBinding) return
     const currentNode = reactFlowInstance.getNode(currentBinding.node_id)
-    if (currentNode) void reactFlowInstance.fitView({ nodes: [currentNode], duration: 180, padding: 0.45 })
-  }, [iecDebugMetadata, iecDebugStatus, reactFlowInstance, selectedInstanceId])
+    if (currentNode) {
+      lastAutoFocusKeyRef.current = focusKey
+      void reactFlowInstance.fitView({ nodes: [currentNode], duration: 180, padding: 0.45 })
+    }
+  }, [
+    iecDebugMetadata,
+    iecDebugStatus?.currentInstanceId,
+    iecDebugStatus?.currentPouId,
+    iecDebugStatus?.currentStatementId,
+    iecDebugStatus?.haltCount,
+    iecDebugStatus?.state,
+    reactFlowInstance,
+    selectedInstanceId,
+  ])
 
   useFBDClipboard({
     mousePosition,
