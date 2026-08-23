@@ -1408,6 +1408,12 @@ class CompilerModule {
 
         const putStream = client.createPutStream(remoteName, { size: binarySize })
 
+        const completeUpload = () => {
+          if (settled) return
+          handleOutputData('TFTP Upload successful!', 'info')
+          complete()
+        }
+
         const uploadTimeout = setTimeout(() => {
           const timeoutSeconds = CompilerModule.TFTP_UPLOAD_TIMEOUT_MS / 1000
           const timeoutError = new Error(`TFTP upload timed out after ${timeoutSeconds} seconds`)
@@ -1423,9 +1429,14 @@ class CompilerModule {
         })
         putStream.once('error', (error: Error) => complete(error))
         putStream.once('abort', () => complete(new Error('TFTP upload was aborted')))
-        putStream.once('finish', () => {
-          handleOutputData('TFTP Upload successful!', 'info')
-          complete()
+        putStream.once('finish', completeUpload)
+        putStream.once('close', () => {
+          // tftp@0.1.2 closes its UDP socket after the final ACK, but with current
+          // Node.js versions the manually emitted close event can suppress the
+          // Writable stream's finish event. Error and abort are emitted directly
+          // after close, so defer the success decision until those events had a
+          // chance to settle the transfer first.
+          setImmediate(completeUpload)
         })
 
         readStream.pipe(putStream)
