@@ -26,6 +26,7 @@ import * as tftp from 'tftp'
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import {
   bindIecDebugVariablesToInstances,
+  buildGraphicalDebugBindings,
   enrichIecDebugMetadata,
   IEC_DEBUG_METADATA_FILE,
   IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
@@ -582,14 +583,16 @@ class CompilerModule {
     await rm(join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE), { force: true })
   }
 
-  async finalizeIecDebugArtifacts(sourceTargetFolderPath: string) {
+  async finalizeIecDebugArtifacts(sourceTargetFolderPath: string, projectData: ProjectState['data']) {
     const metadataPath = join(sourceTargetFolderPath, IEC_DEBUG_METADATA_FILE)
     const variablesPath = join(sourceTargetFolderPath, 'VARIABLES.csv')
     const debugSourcePath = join(sourceTargetFolderPath, 'debug.c')
-    const [metadataJson, variablesCsv, debugSource] = await Promise.all([
+    const programStPath = join(sourceTargetFolderPath, 'program.st')
+    const [metadataJson, variablesCsv, debugSource, programSt] = await Promise.all([
       readFile(metadataPath, 'utf8'),
       readFile(variablesPath, 'utf8'),
       readFile(debugSourcePath, 'utf8'),
+      readFile(programStPath, 'utf8'),
     ])
     if (debugSource.includes(IEC_DEBUG_VARIABLE_ADAPTER_MARKER)) {
       throw new Error('IEC debug variable adapter was generated more than once')
@@ -599,8 +602,13 @@ class CompilerModule {
     }
     const instances = parseIecDebugInstances(variablesCsv, parsedMetadata.pous)
     const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv), instances)
+    const graphicalBindings = buildGraphicalDebugBindings(
+      projectData,
+      programSt,
+      JSON.parse(metadataJson) as Parameters<typeof buildGraphicalDebugBindings>[2],
+    )
     await Promise.all([
-      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables, instances), 'utf8'),
+      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables, instances, graphicalBindings), 'utf8'),
       writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables, instances)}`, 'utf8'),
     ])
   }
@@ -2515,7 +2523,7 @@ class CompilerModule {
         await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
           _mainProcessPort.postMessage({ logLevel, message: data })
         })
-        if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
+        if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath, projectData)
       } catch (error) {
         _mainProcessPort.postMessage({
           logLevel: 'error',
@@ -2880,7 +2888,7 @@ class CompilerModule {
       await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
         _mainProcessPort.postMessage({ logLevel, message: data })
       })
-      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
+      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath, projectData)
     } catch (error) {
       _mainProcessPort.postMessage({
         logLevel: 'error',

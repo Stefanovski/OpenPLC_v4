@@ -11,9 +11,11 @@ import { FBDRungState } from '@root/renderer/store/slices'
 import { getFunctionBlockVariablesToCleanup } from '@root/renderer/store/slices/ladder/utils'
 import {
   getGraphicalDebugSample,
+  getGraphicalIecDebugNodeState,
   type GraphicalDebugSample,
   parseGraphicalDebugBoolean,
 } from '@root/renderer/utils/graphical-debug'
+import { cn } from '@root/utils'
 import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-id'
 import {
   addEdge,
@@ -58,7 +60,15 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
     modals,
     modalActions: { closeModal, openModal },
     snapshotActions: { addSnapshot },
-    workspace: { isDebuggerVisible, debugVariableValues, debugVariableUpdatedAt, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugForcedVariables,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugBreakpoints,
+    },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
 
@@ -74,6 +84,19 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   const [insideViewport, setInsideViewport] = useState(false)
   const [mousePosition, setMousePosition] = useState<XYPosition>({ x: 0, y: 0 })
+
+  useEffect(() => {
+    if (!reactFlowInstance || iecDebugStatus?.state !== 1) return
+    const currentBinding = iecDebugMetadata?.graphical_bindings?.find(
+      (binding) =>
+        binding.language === 'fbd' &&
+        binding.pou_id === iecDebugStatus.currentPouId &&
+        binding.statement_ids.includes(iecDebugStatus.currentStatementId),
+    )
+    if (!currentBinding) return
+    const currentNode = reactFlowInstance.getNode(currentBinding.node_id)
+    if (currentNode) void reactFlowInstance.fitView({ nodes: [currentNode], duration: 180, padding: 0.45 })
+  }, [iecDebugMetadata, iecDebugStatus?.haltCount, reactFlowInstance])
 
   useFBDClipboard({
     mousePosition,
@@ -247,16 +270,30 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   const styledNodes = useMemo(() => {
     if (isDebuggerActive) {
-      return rungLocal.nodes.map((node) => ({
-        ...node,
-        draggable: false,
-        selectable: false,
-        deletable: false,
-      }))
+      return rungLocal.nodes.map((node) => {
+        const debugState = getGraphicalIecDebugNodeState(
+          iecDebugMetadata,
+          iecDebugStatus,
+          iecDebugBreakpoints,
+          editor.meta.name,
+          node.id,
+        )
+        return {
+          ...node,
+          className: cn(node.className, {
+            'iec-graphical-debug-mapped': debugState.binding,
+            'iec-graphical-debug-current': debugState.isCurrent,
+            'iec-graphical-debug-breakpoint': debugState.hasBreakpoint,
+          }),
+          draggable: false,
+          selectable: true,
+          deletable: false,
+        }
+      })
     }
 
     return rungLocal.nodes
-  }, [rungLocal.nodes, isDebuggerActive])
+  }, [editor.meta.name, iecDebugBreakpoints, iecDebugMetadata, iecDebugStatus, isDebuggerActive, rungLocal.nodes])
 
   const nodeTypes = useMemo(() => customNodeTypes, [])
   const canZoom = useMemo(() => {

@@ -1,3 +1,5 @@
+import type { IecDebugMetadata, IecDebugStatus, IecGraphicalDebugBinding } from '@root/types/PLC/iec-debug'
+
 const GRAPHICAL_DEBUG_STALE_AFTER_MS = 1000
 
 type GraphicalDebugQuality =
@@ -131,9 +133,45 @@ const parseGraphicalDebugBoolean = (sample: GraphicalDebugSample): boolean | und
   return undefined
 }
 
+const findGraphicalDebugBinding = (
+  metadata: IecDebugMetadata | null,
+  pouName: string,
+  nodeId: string,
+  rungId?: string,
+): IecGraphicalDebugBinding | undefined => {
+  if (!metadata?.graphical_bindings) return undefined
+  const pou = metadata.pous.find((candidate) => candidate.name.toUpperCase() === pouName.toUpperCase())
+  if (!pou) return undefined
+  return metadata.graphical_bindings.find(
+    (binding) =>
+      binding.pou_id === pou.id && binding.node_id === nodeId && (rungId === undefined || binding.rung_id === rungId),
+  )
+}
+
+const getGraphicalIecDebugNodeState = (
+  metadata: IecDebugMetadata | null,
+  status: IecDebugStatus | null,
+  breakpoints: ReadonlySet<number>,
+  pouName: string,
+  nodeId: string,
+  rungId?: string,
+) => {
+  const binding = findGraphicalDebugBinding(metadata, pouName, nodeId, rungId)
+  return {
+    binding,
+    isCurrent:
+      status?.state === 1 &&
+      binding?.pou_id === status.currentPouId &&
+      binding.statement_ids.includes(status.currentStatementId),
+    hasBreakpoint: binding ? breakpoints.has(binding.breakpoint_statement_id) : false,
+  }
+}
+
 export {
   collectGraphicalDebugWatchKeys,
+  findGraphicalDebugBinding,
   getGraphicalDebugSample,
+  getGraphicalIecDebugNodeState,
   GRAPHICAL_DEBUG_STALE_AFTER_MS,
   parseGraphicalDebugBoolean,
 }

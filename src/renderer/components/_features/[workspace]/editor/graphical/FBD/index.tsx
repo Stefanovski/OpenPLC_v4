@@ -1,6 +1,8 @@
 import { BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/fbd/block'
+import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
 import { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
 import { FBDBody } from '@root/renderer/components/_molecules/graphical-editor/fbd'
+import { useGraphicalIecDebugControls } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { zodFBDFlowSchema } from '@root/renderer/store/slices'
 import { useEffect, useMemo } from 'react'
@@ -19,6 +21,8 @@ export default function FbdEditor() {
 
   const flow = fbdFlows.find((flow) => flow.name === editor.meta.name)
   const flowUpdated = flow?.updated || false
+  const selectedNode = flow?.rung.selectedNodes.at(-1)
+  const graphicalDebugControls = useGraphicalIecDebugControls(selectedNode ? { nodeId: selectedNode.id } : undefined)
 
   const nodeDivergences = useMemo(() => {
     if (!flow) return []
@@ -96,7 +100,12 @@ export default function FbdEditor() {
   }, [flowUpdated])
 
   return (
-    <div className='h-full w-full'>
+    <div className='relative h-full w-full'>
+      <GraphicalIecDebugToolbar
+        isSession={graphicalDebugControls.isGraphicalSession}
+        isHalted={graphicalDebugControls.isHalted}
+        resume={graphicalDebugControls.resume}
+      />
       {flow?.rung ? (
         <FBDBody rung={flow?.rung} nodeDivergences={nodeDivergences} isDebuggerActive={isDebuggerVisible} />
       ) : (

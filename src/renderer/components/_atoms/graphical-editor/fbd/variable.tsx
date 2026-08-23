@@ -1,5 +1,6 @@
 import { useDebugCompositeKey } from '@hooks/use-debug-composite-key'
 import * as Popover from '@radix-ui/react-popover'
+import { useGraphicalIecBreakpoint } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
 import { PLCVariable } from '@root/types/PLC'
@@ -72,6 +73,7 @@ const VariableElement = (block: VariableProps) => {
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
+  const { binding: breakpointBinding, hasBreakpoint, toggleBreakpoint } = useGraphicalIecBreakpoint({ nodeId: id })
 
   const inputVariableRef = useRef<
     HTMLTextAreaElement & {
@@ -558,9 +560,15 @@ const VariableElement = (block: VariableProps) => {
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible || !isAVariable) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
+  }
+
+  const handleToggleBreakpoint = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsContextMenuOpen(false)
+    toggleBreakpoint()
   }
 
   const variableType = getVariableType()
@@ -707,7 +715,7 @@ const VariableElement = (block: VariableProps) => {
                           </div>
                           {isForced && (
                             <div
-                              className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                              className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                               onClick={(e) => void handleReleaseForce(e)}
                             >
                               <p>Release Force</p>
@@ -724,13 +732,21 @@ const VariableElement = (block: VariableProps) => {
                           </div>
                           {isForced && (
                             <div
-                              className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                              className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                               onClick={(e) => void handleReleaseForce(e)}
                             >
                               <p>Release Force</p>
                             </div>
                           )}
                         </>
+                      )}
+                      {breakpointBinding && (
+                        <div
+                          className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg border-t border-neutral-200 px-2 py-1 hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                          onClick={handleToggleBreakpoint}
+                        >
+                          <p>{hasBreakpoint ? 'Remove Breakpoint' : 'Set Breakpoint'}</p>
+                        </div>
                       )}
                     </Popover.Content>
                   </Popover.Portal>

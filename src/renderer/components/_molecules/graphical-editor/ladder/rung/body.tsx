@@ -3,7 +3,11 @@ import { getVariableRestrictionType } from '@root/renderer/components/_atoms/gra
 import { useOpenPLCStore } from '@root/renderer/store'
 import type { RungLadderState } from '@root/renderer/store/slices'
 import { getFunctionBlockVariablesToCleanup } from '@root/renderer/store/slices/ladder/utils'
-import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
+import {
+  getGraphicalDebugSample,
+  getGraphicalIecDebugNodeState,
+  parseGraphicalDebugBoolean,
+} from '@root/renderer/utils/graphical-debug'
 import { cn } from '@root/utils'
 import type { CoordinateExtent, Node as FlowNode, OnNodesChange, ReactFlowInstance } from '@xyflow/react'
 import { applyNodeChanges, getNodesBounds } from '@xyflow/react'
@@ -78,7 +82,14 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     searchQuery,
     searchActions: { setSearchNodePosition },
     snapshotActions: { addSnapshot },
-    workspace: { isDebuggerVisible, debugVariableValues, debugVariableUpdatedAt },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugBreakpoints,
+    },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
 
@@ -344,12 +355,27 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
         })()
 
     if (isDebuggerActive) {
-      return baseNodes.map((node) => ({
-        ...node,
-        draggable: false,
-        selectable: false,
-        deletable: false,
-      }))
+      return baseNodes.map((node) => {
+        const debugState = getGraphicalIecDebugNodeState(
+          iecDebugMetadata,
+          iecDebugStatus,
+          iecDebugBreakpoints,
+          editor.meta.name,
+          node.id,
+          rung.id,
+        )
+        return {
+          ...node,
+          className: cn(node.className, {
+            'iec-graphical-debug-mapped': debugState.binding,
+            'iec-graphical-debug-current': debugState.isCurrent,
+            'iec-graphical-debug-breakpoint': debugState.hasBreakpoint,
+          }),
+          draggable: false,
+          selectable: true,
+          deletable: false,
+        }
+      })
     }
 
     return baseNodes
@@ -358,6 +384,9 @@ export const RungBody = ({ rung, className, nodeDivergences = [], isDebuggerActi
     rungLocal.nodes,
     isDebuggerVisible,
     isDebuggerActive,
+    iecDebugBreakpoints,
+    iecDebugMetadata,
+    iecDebugStatus,
     debugVariableValues,
     debugVariableUpdatedAt,
     sampledEdgeContactStates,

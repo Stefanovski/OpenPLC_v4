@@ -213,7 +213,11 @@ const WorkspaceScreen = () => {
               const projectPou = state.project.data.pous.find(
                 (candidate) => candidate.data.name.toUpperCase() === debugPou?.name.toUpperCase(),
               )
-              if (projectPou?.data.language === 'st' && state.editor.meta.name !== projectPou.data.name) {
+              if (
+                projectPou &&
+                ['st', 'fbd', 'ld'].includes(projectPou.data.language) &&
+                state.editor.meta.name !== projectPou.data.name
+              ) {
                 const directory = projectPou.type === 'function-block' ? 'function-blocks' : `${projectPou.type}s`
                 state.sharedWorkspaceActions.openFile({
                   name: projectPou.data.name,
@@ -329,6 +333,7 @@ const WorkspaceScreen = () => {
         return
       }
     }
+    let pollingActive = true
     let batchSize = 60
 
     if (isRTU && !isTCP) {
@@ -1049,7 +1054,7 @@ const WorkspaceScreen = () => {
     wsActions.setDebugVariableIndexes(updatedIndexes)
 
     const pollVariables = async () => {
-      if (!isMountedRef.current) return
+      if (!pollingActive || !isMountedRef.current) return
 
       if (!variableInfoMapRef.current) {
         return
@@ -1579,6 +1584,7 @@ const WorkspaceScreen = () => {
             const stableResult = await window.bridge.debuggerReadIecVariables(
               stableBatch.map(({ id, type }) => ({ id, type })),
             )
+            if (!pollingActive) return
             if (!stableResult.success || !stableResult.data) {
               throw new Error(stableResult.error ?? 'Stable IEC watch read failed')
             }
@@ -1629,6 +1635,7 @@ const WorkspaceScreen = () => {
 
         // First request
         let result = await window.bridge.debuggerGetVariablesList(batch)
+        if (!pollingActive) return
 
         // Handle ERROR_OUT_OF_MEMORY with retry (halve batch size, retry same offset)
         while (!result.success && result.error === 'ERROR_OUT_OF_MEMORY' && currentBatchSize > 2) {
@@ -1717,6 +1724,7 @@ const WorkspaceScreen = () => {
           workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
         }
       } catch (error: unknown) {
+        if (!pollingActive || !useOpenPLCStore.getState().workspace.isDebuggerVisible) return
         const { consoleActions } = useOpenPLCStore.getState()
         consoleActions.addLog({
           id: `debugger-poll-error-${Date.now()}`,
@@ -1742,6 +1750,7 @@ const WorkspaceScreen = () => {
     }, DEBUGGER_POLL_INTERVAL_MS)
 
     return () => {
+      pollingActive = false
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current)
         pollingIntervalRef.current = null

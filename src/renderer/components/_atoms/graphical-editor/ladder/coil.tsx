@@ -8,6 +8,7 @@ import {
   RisingEdgeCoil,
   SetCoil,
 } from '@root/renderer/assets/icons/flow/Coil'
+import { useGraphicalIecBreakpoint } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
 import { cn, generateNumericUUID } from '@root/utils'
@@ -138,6 +139,14 @@ export const Coil = (block: CoilProps) => {
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
+  const coilRungId = ladderFlows
+    .find((flow) => flow.name.toUpperCase() === editor.meta.name.toUpperCase())
+    ?.rungs.find((rung) => rung.nodes.some((node) => node.id === id))?.id
+  const {
+    binding: breakpointBinding,
+    hasBreakpoint,
+    toggleBreakpoint,
+  } = useGraphicalIecBreakpoint({ nodeId: id, rungId: coilRungId })
 
   const coil = DEFAULT_COIL_TYPES[data.variant]
   const [coilVariableValue, setCoilVariableValue] = useState<string>(data.variable.name)
@@ -398,9 +407,15 @@ export const Coil = (block: CoilProps) => {
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
+  }
+
+  const handleToggleBreakpoint = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsContextMenuOpen(false)
+    toggleBreakpoint()
   }
 
   return (
@@ -539,10 +554,18 @@ export const Coil = (block: CoilProps) => {
                     </div>
                     {isForced && (
                       <div
-                        className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
+                        className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                         onClick={(e) => void handleReleaseForce(e)}
                       >
                         <p>Release Force</p>
+                      </div>
+                    )}
+                    {breakpointBinding && (
+                      <div
+                        className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg border-t border-neutral-200 px-2 py-1 hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-900'
+                        onClick={handleToggleBreakpoint}
+                      >
+                        <p>{hasBreakpoint ? 'Remove Breakpoint' : 'Set Breakpoint'}</p>
                       </div>
                     )}
                   </Popover.Content>

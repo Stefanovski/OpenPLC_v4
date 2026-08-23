@@ -1,6 +1,10 @@
+import type { IecDebugMetadata, IecDebugStatus } from '@root/types/PLC/iec-debug'
+
 import {
   collectGraphicalDebugWatchKeys,
+  findGraphicalDebugBinding,
   getGraphicalDebugSample,
+  getGraphicalIecDebugNodeState,
   GRAPHICAL_DEBUG_STALE_AFTER_MS,
   parseGraphicalDebugBoolean,
 } from './graphical-debug'
@@ -124,5 +128,52 @@ describe('graphical debugger', () => {
     expect(parseGraphicalDebugBoolean({ value: 'TRUE', quality: 'type-error' })).toBeUndefined()
     expect(parseGraphicalDebugBoolean({ value: 'TRUE', quality: 'build-mismatch' })).toBeUndefined()
     expect(parseGraphicalDebugBoolean({ value: undefined, quality: 'sampled' })).toBeUndefined()
+  })
+
+  it('resolves current statements and breakpoints for a graphical node', () => {
+    const metadata: IecDebugMetadata = {
+      format: 'eurosonic-plc-debug',
+      version: 1,
+      id_algorithm: 'fnv1a32',
+      build_id: 'test',
+      pous: [{ id: 10, key: 'pou', name: 'FBDTEST', kind: 'program' }],
+      statements: [],
+      variables: [],
+      instances: [],
+      graphical_bindings: [
+        {
+          pou_id: 10,
+          language: 'fbd',
+          node_id: 'add-node',
+          local_id: '3168552',
+          kind: 'block',
+          statement_ids: [20, 21],
+          breakpoint_statement_id: 21,
+          source_line: 80,
+        },
+      ],
+    }
+    const haltedStatus = {
+      state: 1,
+      currentPouId: 10,
+      currentStatementId: 20,
+    } as IecDebugStatus
+
+    expect(findGraphicalDebugBinding(metadata, 'fbdtest', 'add-node')).toMatchObject({
+      breakpoint_statement_id: 21,
+    })
+    expect(getGraphicalIecDebugNodeState(metadata, haltedStatus, new Set([21]), 'fbdtest', 'add-node')).toMatchObject({
+      isCurrent: true,
+      hasBreakpoint: true,
+    })
+    expect(
+      getGraphicalIecDebugNodeState(metadata, { ...haltedStatus, state: 0 }, new Set(), 'fbdtest', 'add-node'),
+    ).toMatchObject({
+      isCurrent: false,
+      hasBreakpoint: false,
+    })
+    expect(
+      findGraphicalDebugBinding({ ...metadata, graphical_bindings: undefined }, 'fbdtest', 'add-node'),
+    ).toBeUndefined()
   })
 })

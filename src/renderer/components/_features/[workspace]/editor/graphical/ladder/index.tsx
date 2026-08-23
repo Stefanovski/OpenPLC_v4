@@ -16,13 +16,14 @@ import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import * as Portal from '@radix-ui/react-portal'
 import { GraphicalDebugStatus } from '@root/renderer/components/_atoms/graphical-editor/graphical-debug-status'
+import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
 import { BlockNode, BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/ladder/block'
 import { CoilNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/coil'
 import { ContactNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/contact'
 import { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
 import { CreateRung } from '@root/renderer/components/_molecules/graphical-editor/ladder/rung/create-rung'
 import { Rung } from '@root/renderer/components/_organisms/graphical-editor/ladder/rung'
-import { ladderSelectors } from '@root/renderer/hooks'
+import { ladderSelectors, useGraphicalIecDebugControls } from '@root/renderer/hooks'
 import { openPLCStoreBase, useOpenPLCStore } from '@root/renderer/store'
 import { RungLadderState, zodLadderFlowSchema } from '@root/renderer/store/slices'
 import { cn } from '@root/utils'
@@ -45,12 +46,12 @@ export default function LadderEditor() {
       data: { pous },
     },
     projectActions: { updatePou },
-    editorActions: { saveEditorViewState },
+    editorActions: { getIsRungOpen, saveEditorViewState },
     modalActions: { closeModal },
     sharedWorkspaceActions: { handleFileAndWorkspaceSavedState },
     snapshotActions: { addSnapshot },
     libraries: { user: userLibraries },
-    workspace: { isDebuggerVisible },
+    workspace: { isDebuggerVisible, iecDebugMetadata, iecDebugStatus },
   } = useOpenPLCStore()
 
   const updateModelLadder = ladderSelectors.useUpdateModelLadder()
@@ -58,12 +59,36 @@ export default function LadderEditor() {
   const flow = ladderFlows.find((flow) => flow.name === editor.meta.name)
   const rungs = flow?.rungs || []
   const flowUpdated = flow?.updated || false
+  const selectedGraphicalNode = rungs
+    .flatMap((rung) => rung.selectedNodes.map((node) => ({ nodeId: node.id, rungId: rung.id })))
+    .at(-1)
+  const graphicalDebugControls = useGraphicalIecDebugControls(selectedGraphicalNode)
 
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
   const [activeItem, setActiveItem] = useState<RungLadderState | null>(null)
   const nodeDivergences = getLibraryDivergences()
 
   const scrollableRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (iecDebugStatus?.state !== 1) return
+    const currentPou = iecDebugMetadata?.pous.find((candidate) => candidate.id === iecDebugStatus.currentPouId)
+    if (currentPou?.name.toUpperCase() !== editor.meta.name.toUpperCase()) return
+    const currentBinding = iecDebugMetadata?.graphical_bindings?.find(
+      (binding) =>
+        binding.language === 'ld' &&
+        binding.pou_id === iecDebugStatus.currentPouId &&
+        binding.statement_ids.includes(iecDebugStatus.currentStatementId),
+    )
+    if (!currentBinding?.rung_id) return
+    const rungId = currentBinding.rung_id
+    if (!getIsRungOpen({ rungId })) {
+      updateModelLadder({ openRung: { rungId, open: true } })
+    }
+    requestAnimationFrame(() => {
+      document.getElementById(rungId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [editor.meta.name, getIsRungOpen, iecDebugMetadata, iecDebugStatus?.haltCount, updateModelLadder])
+
   useEffect(() => {
     if (scrollableRef.current) {
       scrollableRef.current.scrollTo({
@@ -304,6 +329,11 @@ export default function LadderEditor() {
 
   return (
     <div className='relative h-full w-full overflow-y-auto' ref={scrollableRef} style={{ scrollbarGutter: 'stable' }}>
+      <GraphicalIecDebugToolbar
+        isSession={graphicalDebugControls.isGraphicalSession}
+        isHalted={graphicalDebugControls.isHalted}
+        resume={graphicalDebugControls.resume}
+      />
       {isDebuggerVisible && <GraphicalDebugStatus />}
       <div className='flex flex-1 flex-col gap-4 px-2'>
         <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} onDragStart={handleDragStart}>

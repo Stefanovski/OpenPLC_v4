@@ -368,7 +368,6 @@ export const Contact = (block: ContactProps) => {
   const handleClick = (e: React.MouseEvent) => {
     if (!isDebuggerVisible) return
     e.preventDefault()
-    e.stopPropagation()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
     setIsContextMenuOpen(true)
   }

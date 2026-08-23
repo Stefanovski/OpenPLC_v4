@@ -40,6 +40,18 @@ export type IecDebugInstance = {
   kind: 'program' | 'function-block'
 }
 
+export type IecGraphicalDebugBinding = {
+  pou_id: number
+  language: 'fbd' | 'ld'
+  node_id: string
+  local_id: string
+  rung_id?: string
+  kind: 'block' | 'output-variable' | 'coil'
+  statement_ids: number[]
+  breakpoint_statement_id: number
+  source_line: number
+}
+
 export type IecDebugMetadata = {
   format: 'eurosonic-plc-debug'
   version: 1
@@ -49,6 +61,7 @@ export type IecDebugMetadata = {
   statements: IecDebugStatement[]
   variables: IecDebugVariable[]
   instances: IecDebugInstance[]
+  graphical_bindings?: IecGraphicalDebugBinding[]
 }
 
 export type IecDebugStatus = {
