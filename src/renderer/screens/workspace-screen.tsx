@@ -1920,7 +1920,7 @@ const WorkspaceScreen = () => {
     }
   }
 
-  const handleWriteVariable = async (
+  const handleModifyVariable = async (
     compositeKey: string,
     _variableType: string,
     value?: boolean,
@@ -1941,7 +1941,14 @@ const WorkspaceScreen = () => {
       stableVariable.type_code,
       toNativeIecDebugValue(buffer, stableVariable.type_code),
     )
-    if (!result.success) console.warn(`[IEC Debugger] Write failed for ${compositeKey}: ${result.error}`)
+    const { consoleActions } = useOpenPLCStore.getState()
+    consoleActions.addLog({
+      id: crypto.randomUUID(),
+      level: result.success ? 'info' : 'error',
+      message: result.success
+        ? `Modified ${compositeKey}. The PLC program may overwrite this value in the next cycle.`
+        : `Failed to modify ${compositeKey}: ${result.error ?? 'Unknown error'}`,
+    })
   }
   return (
     <div className='flex h-full w-full bg-brand-dark dark:bg-neutral-950'>
@@ -2161,7 +2168,7 @@ const WorkspaceScreen = () => {
                               onToggleExpandedNode={toggleDebugExpandedNode}
                               isDebuggerVisible={isDebuggerVisible}
                               onForceVariable={handleForceVariable}
-                              onWriteVariable={iecDebugMetadata ? handleWriteVariable : undefined}
+                              onModifyVariable={iecDebugMetadata ? handleModifyVariable : undefined}
                             />
                           </ResizablePanel>
                           <ResizableHandle className='w-2 bg-transparent' />
