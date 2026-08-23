@@ -1,13 +1,6 @@
-import { InputWithRef, Label } from '@root/renderer/components/_atoms' // Pfad ggf. anpassen
 import { INPUT_STYLES } from '@data/constants/device-styles'
-
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
-} from '@root/renderer/components/_atoms/dialog/dialogs' // Pfad ggf. anpassen
+import { InputWithRef, Label } from '@root/renderer/components/_atoms'
+import { Modal, ModalContent, ModalTitle, ModalTrigger } from '@root/renderer/components/_molecules/modal'
 import type { DeviceInfo } from '@root/types/discovery'
 import { useState } from 'react'
 
@@ -20,186 +13,186 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
   const [scanning, setScanning] = useState(false)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null)
-
-  // Lokaler State für das Formular (zum Ändern der IP/DHCP)
   const [configIp, setConfigIp] = useState('')
   const [configDhcp, setConfigDhcp] = useState(false)
 
-  // Scan starten
   const handleScan = async () => {
     setScanning(true)
     setDevices([])
     setSelectedDevice(null)
     try {
-      // Zugriff auf die Bridge, die wir gebaut haben
       const results = await window.electronAPI.discoverDevices()
       setDevices(results)
-    } catch (err) {
-      console.error('Scan failed:', err)
+    } catch (error) {
+      console.error('Scan failed:', error)
     } finally {
       setScanning(false)
     }
   }
 
-  // Gerät aus der Liste auswählen
-  const handleSelect = (dev: DeviceInfo) => {
-    setSelectedDevice(dev)
-    setConfigIp(dev.ip)
-    setConfigDhcp(false) // Standardannahme, da wir DHCP Status nicht auslesen können im Broadcast
+  const handleSelect = (device: DeviceInfo) => {
+    setSelectedDevice(device)
+    setConfigIp(device.ip)
+    setConfigDhcp(false)
   }
 
-  // IP in das Hauptformular übernehmen
   const handleApplyToForm = () => {
-    if (selectedDevice) {
-      onSelectIp(selectedDevice.ip) // Oder configIp, wenn man die geänderte will
-      setOpen(false)
-    }
+    if (!selectedDevice) return
+    onSelectIp(selectedDevice.ip)
+    setOpen(false)
   }
 
-  // Konfiguration an das Gerät senden (via UDP)
   const handleConfigureDevice = async () => {
     if (!selectedDevice) return
-    
+
     try {
       const success = await window.electronAPI.configureDevice({
         mac: selectedDevice.mac,
         targetIp: selectedDevice.ip,
         dhcp: configDhcp,
         newIp: configIp,
-        netmask: "255.255.255.0", // Hardcoded oder via UI erweiterbar
-        gateway: "0.0.0.0",       // Hardcoded oder via UI erweiterbar
-        hostname: selectedDevice.hostname
+        netmask: '255.255.255.0',
+        gateway: '0.0.0.0',
+        hostname: selectedDevice.hostname,
       })
 
       if (success) {
-        alert("Configuration sent!")
-        handleScan() // Liste aktualisieren
+        alert('Configuration sent!')
+        void handleScan()
       }
-    } catch (e) {
-      alert("Error while sending the configuration.")
+    } catch (_error) {
+      alert('Error while sending the configuration.')
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Modal open={open} onOpenChange={setOpen}>
+      <ModalTrigger asChild>
         <button
-        type="button"
-        onClick={() => handleScan()}
-        className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex items-center gap-2 dark:bg-neutral-700 dark:text-white dark:hover:bg-neutral-600"
+          type='button'
+          onClick={() => void handleScan()}
+          className='flex items-center gap-2 whitespace-nowrap rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700'
         >
-        Search Devices
+          Search Devices
         </button>
-     </DialogTrigger>
-      
-      <DialogContent className='max-w-3xl bg-white dark:bg-neutral-900 text-neutral-950 dark:text-white'>
-        <DialogHeader>
-          <DialogTitle>Found Eurosonic Devices</DialogTitle>
-        </DialogHeader>
+      </ModalTrigger>
 
-        <div className='flex gap-6 h-[400px] mt-4'>
-          {/* Linke Spalte: Liste der Geräte */}
-          <div className='flex-1 flex flex-col border-r border-neutral-200 dark:border-neutral-700 pr-4'>
-            <div className='flex justify-between items-center mb-2 pb-2 border-b border-neutral-100 dark:border-neutral-800'>
-              <span className='text-xs font-bold uppercase text-neutral-500'>Liste ({devices.length})</span>
-              <button 
-                onClick={handleScan} 
+      <ModalContent
+        onClose={() => setOpen(false)}
+        className='h-[550px] w-[850px] max-w-[calc(100vw-2rem)] select-none gap-4 rounded-lg p-6 text-neutral-950 dark:text-neutral-100'
+      >
+        <ModalTitle className='text-lg font-semibold text-neutral-950 dark:text-white'>
+          Found Eurosonic Devices
+        </ModalTitle>
+
+        <div className='mt-2 flex h-[400px] gap-6'>
+          <div className='flex flex-1 flex-col border-r border-neutral-200 pr-4 dark:border-neutral-800'>
+            <div className='mb-2 flex items-center justify-between border-b border-neutral-200 pb-2 dark:border-neutral-800'>
+              <span className='text-xs font-bold uppercase text-neutral-500 dark:text-neutral-400'>
+                Devices ({devices.length})
+              </span>
+              <button
+                type='button'
+                onClick={() => void handleScan()}
                 disabled={scanning}
-                className='text-xs text-blue-600 hover:underline disabled:opacity-50'
+                className='text-xs font-medium text-brand hover:underline disabled:opacity-50'
               >
                 {scanning ? 'Searching ...' : 'Update'}
               </button>
             </div>
-            
-            <div className='flex-1 overflow-y-auto space-y-2'>
+
+            <div className='flex-1 space-y-2 overflow-y-auto'>
               {devices.length === 0 && !scanning && (
-                <p className='text-sm text-neutral-400 text-center mt-10'>No devices found.</p>
+                <p className='mt-10 text-center text-sm text-neutral-400'>No devices found.</p>
               )}
-              
-              {devices.map((dev) => (
-                <div 
-                  key={dev.mac}
-                  onClick={() => handleSelect(dev)}
-                  className={`
-                    p-3 rounded-md cursor-pointer border text-sm transition-colors
-                    ${selectedDevice?.mac === dev.mac 
-                      ? 'bg-blue-50 border-blue-500 dark:bg-blue-900/20 dark:border-blue-400' 
-                      : 'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                    }
-                  `}
+
+              {devices.map((device) => (
+                <button
+                  type='button'
+                  key={device.mac}
+                  onClick={() => handleSelect(device)}
+                  className={`w-full cursor-pointer rounded-md border p-3 text-left text-sm transition-colors ${
+                    selectedDevice?.mac === device.mac
+                      ? 'bg-brand/10 border-brand'
+                      : 'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-850'
+                  }`}
                 >
-                  <div className='font-bold'>{dev.hostname}</div>
-                  <div className='flex justify-between text-xs text-neutral-500 mt-1'>
-                    <span>{dev.ip}</span>
-                    <span className='font-mono'>{dev.mac}</span>
+                  <div className='font-bold'>{device.hostname}</div>
+                  <div className='mt-1 flex justify-between text-xs text-neutral-500 dark:text-neutral-400'>
+                    <span>{device.ip}</span>
+                    <span className='font-mono'>{device.mac}</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
 
-          {/* Rechte Spalte: Details & Aktionen */}
-          <div className='flex-1 flex flex-col'>
+          <div className='flex flex-1 flex-col'>
             {selectedDevice ? (
-              <div className='flex flex-col h-full gap-4'>
-                <div className='bg-neutral-50 dark:bg-neutral-800 p-3 rounded text-sm mb-2'>
-                  <h4 className='font-bold mb-1'>Device Information</h4>
-                  <p className='text-xs text-neutral-500'>Revision: {selectedDevice.revision}</p>
-                  <p className='text-xs text-neutral-500'>{selectedDevice.info}</p>
+              <div className='flex h-full flex-col gap-4'>
+                <div className='mb-2 rounded-md bg-neutral-100 p-3 text-sm dark:bg-neutral-850'>
+                  <h4 className='mb-1 font-bold'>Device Information</h4>
+                  <p className='text-xs text-neutral-500 dark:text-neutral-400'>Revision: {selectedDevice.revision}</p>
+                  <p className='text-xs text-neutral-500 dark:text-neutral-400'>{selectedDevice.info}</p>
                 </div>
 
                 <div className='space-y-4'>
                   <div className='flex items-center gap-2'>
-                    <input 
-                      type="checkbox" 
-                      id="dhcp-check"
-                      className="rounded border-gray-300"
-                      checked={configDhcp} 
-                      onChange={e => setConfigDhcp(e.target.checked)} 
+                    <input
+                      type='checkbox'
+                      id='dhcp-check'
+                      className='h-4 w-4 rounded border-neutral-300 accent-brand'
+                      checked={configDhcp}
+                      onChange={(event) => setConfigDhcp(event.target.checked)}
                     />
-                    <Label htmlFor="dhcp-check" className="cursor-pointer">DHCP</Label>
+                    <Label htmlFor='dhcp-check' className='cursor-pointer'>
+                      DHCP
+                    </Label>
                   </div>
 
                   {!configDhcp && (
                     <div className='space-y-1'>
-                      <Label className='text-xs'>IP Address      </Label>
-                      <InputWithRef 
-                        value={configIp} 
-                        onChange={e => setConfigIp(e.target.value)} 
-                        // HIER SIND DIE NEUEN STYLES:
+                      <Label className='text-xs'>IP Address</Label>
+                      <InputWithRef
+                        value={configIp}
+                        onChange={(event) => setConfigIp(event.target.value)}
                         className={INPUT_STYLES.default}
-                        placeholder="xxx.xxx.xxx.xxx"
-                        />
+                        placeholder='xxx.xxx.xxx.xxx'
+                      />
                     </div>
-                    )}
+                  )}
 
-                    <button 
-                    type="button"
-                    onClick={handleConfigureDevice}
-                    className="w-full px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded-md text-sm font-medium transition-colors mt-2"
-                    >
+                  <button
+                    type='button'
+                    onClick={() => void handleConfigureDevice()}
+                    className='mt-2 w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-medium-dark'
+                  >
                     Send Configuration
-                    </button>
+                  </button>
                 </div>
 
-                <div className='mt-auto pt-4 border-t border-neutral-200 dark:border-neutral-700'>
-                    <button 
-                    type="button"
+                <div className='mt-auto border-t border-neutral-200 pt-4 dark:border-neutral-800'>
+                  <button
+                    type='button'
                     onClick={handleApplyToForm}
-                    className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium transition-colors"
-                    >
+                    className='w-full rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-medium-dark'
+                  >
                     Use this device IP
-                    </button>
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className='flex h-full items-center justify-center text-neutral-400 text-sm'>
-                <p>Select a device,<br/>to enter changes.</p>
+              <div className='flex h-full items-center justify-center text-center text-sm text-neutral-400'>
+                <p>
+                  Select a device,
+                  <br />
+                  to enter changes.
+                </p>
               </div>
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </ModalContent>
+    </Modal>
   )
 }
