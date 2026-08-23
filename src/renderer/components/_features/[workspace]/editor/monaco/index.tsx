@@ -4,9 +4,16 @@ import { Editor as PrimitiveEditor } from '@monaco-editor/react'
 import { Modal, ModalContent, ModalTitle } from '@process:renderer/components/_molecules/modal'
 import { openPLCStoreBase, useOpenPLCStore } from '@process:renderer/store'
 import { PLCVariable } from '@root/types/PLC'
+import type { IecDebugBreakpoint, IecDebugResumeMode, IecDebugVariable } from '@root/types/PLC/iec-debug'
 import { baseTypeSchema, type PLCPou } from '@root/types/PLC/open-plc'
 import * as monaco from 'monaco-editor'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  VscDebugContinue,
+  VscDebugStepInto,
+  VscDebugStepOut,
+  VscDebugStepOver,
+} from 'react-icons/vsc'
 
 import { toast } from '../../../[app]/toast/use-toast'
 import {
@@ -55,6 +62,73 @@ type SnippetController = {
 }
 
 type BlockCommentState = false | 'paren' | 'slash'
+
+const IEC_DEBUG_CAP_STEP_OVER = 1 << 5
+const IEC_DEBUG_CAP_STEP_OUT = 1 << 6
+const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
+
+const iecDebugValueSize = (type: number): number => {
+  if ([1, 2, 3, 17].includes(type)) return 1
+  if ([4, 5, 18].includes(type)) return 2
+  if ([6, 7, 10, 19].includes(type)) return 4
+  if ([8, 9, 11, 12, 13, 14, 15, 20].includes(type)) return 8
+  if (type === 16) return 127
+  return 0
+}
+
+const formatIecDebugValue = (variable: IecDebugVariable, bytes: number[]): string => {
+  const value = Uint8Array.from(bytes)
+  const view = new DataView(value.buffer, value.byteOffset, value.byteLength)
+  if (variable.type_code === 1) return value[0] ? 'TRUE' : 'FALSE'
+  if (variable.type_code === 2) return view.getInt8(0).toString()
+  if ([3, 17].includes(variable.type_code)) return view.getUint8(0).toString()
+  if (variable.type_code === 4) return view.getInt16(0, true).toString()
+  if ([5, 18].includes(variable.type_code)) return view.getUint16(0, true).toString()
+  if (variable.type_code === 6) return view.getInt32(0, true).toString()
+  if ([7, 19].includes(variable.type_code)) return view.getUint32(0, true).toString()
+  if (variable.type_code === 8) return view.getBigInt64(0, true).toString()
+  if ([9, 20].includes(variable.type_code)) return view.getBigUint64(0, true).toString()
+  if (variable.type_code === 10) return view.getFloat32(0, true).toString()
+  if (variable.type_code === 11) return view.getFloat64(0, true).toString()
+  return `0x${bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+const encodeIecDebugLiteral = (variable: IecDebugVariable, literal: string): number[] | null => {
+  const size = iecDebugValueSize(variable.type_code)
+  if (size <= 0 || size > 8) return null
+  const bytes = new Uint8Array(size)
+  const view = new DataView(bytes.buffer)
+  const normalized = literal.trim().toUpperCase()
+  const numeric = Number(literal)
+  if (variable.type_code === 1) {
+    if (!['TRUE', 'FALSE', '1', '0'].includes(normalized)) return null
+    view.setUint8(0, ['TRUE', '1'].includes(normalized) ? 1 : 0)
+  } else if (variable.type_code >= 2 && variable.type_code <= 7) {
+    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return null
+    if (variable.type_code === 2) view.setInt8(0, numeric)
+    else if ([3, 17].includes(variable.type_code)) view.setUint8(0, numeric)
+    else if (variable.type_code === 4) view.setInt16(0, numeric, true)
+    else if ([5, 18].includes(variable.type_code)) view.setUint16(0, numeric, true)
+    else if (variable.type_code === 6) view.setInt32(0, numeric, true)
+    else view.setUint32(0, numeric, true)
+  } else if ([17, 18, 19].includes(variable.type_code)) {
+    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) return null
+    if (variable.type_code === 17) view.setUint8(0, numeric)
+    else if (variable.type_code === 18) view.setUint16(0, numeric, true)
+    else view.setUint32(0, numeric, true)
+  }
+  else if (variable.type_code === 8) view.setBigInt64(0, BigInt(literal), true)
+  else if ([9, 20].includes(variable.type_code)) view.setBigUint64(0, BigInt(literal), true)
+  else if (variable.type_code === 10) {
+    if (!Number.isFinite(numeric)) return null
+    view.setFloat32(0, numeric, true)
+  } else if (variable.type_code === 11) {
+    if (!Number.isFinite(numeric)) return null
+    view.setFloat64(0, numeric, true)
+  }
+  else return null
+  return Array.from(bytes)
+}
 
 // Replace comment regions with spaces so source column positions stay intact.
 function stripLineComments(line: string, state: BlockCommentState): { stripped: string; state: BlockCommentState } {
@@ -122,6 +196,8 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       fbDebugInstances,
       iecDebugMetadata,
       iecDebugStatus,
+      iecDebugCapabilities,
+      iecDebugCallStack,
       iecDebugBreakpoints,
     },
     project: {
@@ -147,6 +223,9 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   const [isOpen, setIsOpen] = useState<boolean>(false)
   const [contentToDrop, setContentToDrop] = useState<PouToText>()
   const [newName, setNewName] = useState<string>('')
+  const [advancedBreakpointOpen, setAdvancedBreakpointOpen] = useState(false)
+  const [advancedBreakpointLine, setAdvancedBreakpointLine] = useState<number | null>(null)
+  const [advancedBreakpointSpecification, setAdvancedBreakpointSpecification] = useState('')
   const [localText, setLocalText] = useState<string>(() => {
     const pou = openPLCStoreBase.getState().project.data.pous.find((pou) => pou.data.name === name)
     return typeof pou?.data.body.value === 'string' ? pou.data.body.value : ''
@@ -175,11 +254,66 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   )
 
   const currentIecDebugStatement = useMemo(
-    () => iecDebugStatements.find((statement) => statement.id === iecDebugStatus?.currentStatementId),
-    [iecDebugStatements, iecDebugStatus?.currentStatementId],
+    () => iecDebugMetadata?.statements.find((statement) => statement.id === iecDebugStatus?.currentStatementId),
+    [iecDebugMetadata?.statements, iecDebugStatus?.currentStatementId],
+  )
+  const currentIecDebugPou = useMemo(
+    () => iecDebugMetadata?.pous.find((entry) => entry.id === iecDebugStatus?.currentPouId),
+    [iecDebugMetadata?.pous, iecDebugStatus?.currentPouId],
   )
   const isIecDebugSession = isDebuggerVisible && language === 'st' && iecDebugMetadata !== null
   const isIecDebugHalted = iecDebugStatus?.state === 1
+  const currentIecDebugInstance = useMemo(
+    () => iecDebugMetadata?.instances.find((instance) => instance.id === iecDebugStatus?.currentInstanceId),
+    [iecDebugMetadata?.instances, iecDebugStatus?.currentInstanceId],
+  )
+  const currentIecDebugLocals = useMemo(
+    () =>
+      currentIecDebugInstance
+        ? iecDebugMetadata?.variables.filter((variable) => variable.instance_id === currentIecDebugInstance.id) ?? []
+        : [],
+    [currentIecDebugInstance, iecDebugMetadata?.variables],
+  )
+  const [iecDebugLocalValues, setIecDebugLocalValues] = useState<Map<number, string>>(new Map())
+
+  useEffect(() => {
+    if (!isIecDebugHalted || currentIecDebugLocals.length === 0) {
+      setIecDebugLocalValues(new Map())
+      return
+    }
+    let active = true
+    const readLocals = async () => {
+      const values = new Map<number, string>()
+      let offset = 0
+      while (active && offset < currentIecDebugLocals.length) {
+        const batch: IecDebugVariable[] = []
+        let responseSize = 1
+        while (offset < currentIecDebugLocals.length && batch.length < 24) {
+          const variable = currentIecDebugLocals[offset]
+          const size = iecDebugValueSize(variable.type_code)
+          offset += 1
+          if (size === 0 || responseSize + 9 + size > 245) continue
+          batch.push(variable)
+          responseSize += 9 + size
+        }
+        if (batch.length === 0) continue
+        const result = await window.bridge.debuggerReadIecVariables(
+          batch.map((variable) => ({ id: variable.id, type: variable.type_code })),
+        )
+        if (!result.success || !result.data) break
+        const variablesById = new Map(batch.map((variable) => [variable.id, variable]))
+        for (const entry of result.data) {
+          const variable = variablesById.get(entry.id)
+          if (variable) values.set(entry.id, formatIecDebugValue(variable, entry.value))
+        }
+      }
+      if (active) setIecDebugLocalValues(values)
+    }
+    void readLocals()
+    return () => {
+      active = false
+    }
+  }, [currentIecDebugLocals, iecDebugStatus?.haltCount, isIecDebugHalted])
 
   useEffect(() => {
     if (editorRef.current && searchQuery) {
@@ -256,7 +390,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       options: { glyphMarginClassName: 'iec-debug-breakpoint-glyph', glyphMarginHoverMessage: { value: 'Breakpoint' } },
     }))
 
-    if (currentIecDebugStatement && isIecDebugHalted) {
+    if (currentIecDebugStatement && currentIecDebugStatement.pou_id === iecDebugPou?.id && isIecDebugHalted) {
       decorations.push({
         range: new monaco.Range(currentIecDebugStatement.line, 1, currentIecDebugStatement.line, 1),
         options: {
@@ -273,25 +407,25 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     return () => collection.clear()
   }, [
     currentIecDebugStatement,
+    iecDebugPou?.id,
     editorMounted,
     iecDebugBreakpoints,
     iecDebugStatements,
     isIecDebugHalted,
     isIecDebugSession,
+    modelVersion,
   ])
 
-  useEffect(() => {
-    const editorInstance = editorRef.current
-    if (!editorInstance || !isIecDebugSession) return
+  const statementAtLine = useCallback(
+    (line: number) =>
+      iecDebugStatements.filter((statement) => statement.line === line).sort((left, right) => left.column - right.column)[0],
+    [iecDebugStatements],
+  )
 
-    const disposable = editorInstance.onMouseDown((event) => {
-      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position) return
-      const statements = iecDebugStatements
-        .filter((statement) => statement.line === event.target.position?.lineNumber)
-        .sort((left, right) => left.column - right.column)
-      const statement = statements[0]
+  const toggleIecBreakpoint = useCallback(
+    (line: number) => {
+      const statement = statementAtLine(line)
       if (!statement) return
-
       const enabled = !iecDebugBreakpoints.has(statement.id)
       void window.bridge.debuggerSetIecBreakpoint(statement.id, enabled).then((result) => {
         if (!result.success) {
@@ -307,11 +441,154 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
         else next.delete(statement.id)
         setIecDebugBreakpoints(next)
       })
+    },
+    [iecDebugBreakpoints, setIecDebugBreakpoints, statementAtLine],
+  )
+
+  const applyIecBreakpointSpecification = useCallback(
+    (line: number, specification: string): boolean => {
+      const statement = statementAtLine(line)
+      if (!statement || !iecDebugMetadata) return false
+
+      try {
+        const breakpoint: IecDebugBreakpoint = { statementId: statement.id }
+        const parts = specification.split(';').map((part) => part.trim()).filter(Boolean)
+        let selectedInstance: (typeof iecDebugMetadata.instances)[number] | undefined
+        const instancePart = parts.find((part) => part.toLowerCase().startsWith('instance='))
+        if (instancePart) {
+          const requested = instancePart.slice(instancePart.indexOf('=') + 1).trim()
+          selectedInstance =
+            requested.toLowerCase() === 'current'
+              ? currentIecDebugInstance
+              : iecDebugMetadata.instances.find(
+                  (candidate) =>
+                    candidate.pou_id === statement.pou_id &&
+                    candidate.path.toUpperCase() === requested.toUpperCase(),
+                )
+          if (!selectedInstance || selectedInstance.pou_id !== statement.pou_id) {
+            throw new Error(`Unknown ${iecDebugPou?.name ?? 'IEC'} instance '${requested}'`)
+          }
+          breakpoint.instanceId = selectedInstance.id
+        }
+        const availableVariables = selectedInstance
+          ? iecDebugMetadata.variables.filter((variable) => variable.instance_id === selectedInstance.id)
+          : iecDebugMetadata.variables
+
+        for (const part of parts) {
+          if (part.toLowerCase().startsWith('instance=')) {
+            continue
+          }
+          if (part.toLowerCase().startsWith('hit=')) {
+            const hitTarget = Number(part.slice(part.indexOf('=') + 1))
+            if (!Number.isInteger(hitTarget) || hitTarget <= 0) throw new Error('Hit count must be a positive integer')
+            breakpoint.hitTarget = hitTarget
+            continue
+          }
+          if (part.toLowerCase().startsWith('change=')) {
+            if (!selectedInstance) throw new Error('Break on change requires an explicit instance')
+            const requested = part.slice(part.indexOf('=') + 1).trim().toUpperCase()
+            const variable = availableVariables.find(
+              (candidate) =>
+                candidate.path.toUpperCase() === requested || candidate.path.toUpperCase().endsWith(`.${requested}`),
+            )
+            if (!variable) throw new Error(`Unknown local IEC variable '${requested}'`)
+            const size = iecDebugValueSize(variable.type_code)
+            if (size <= 0 || size > 8) throw new Error(`Break on change does not support ${variable.type}`)
+            breakpoint.change = { variableId: variable.id, type: variable.type_code, size }
+            continue
+          }
+
+          const condition = part.match(/^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/)
+          if (!condition) throw new Error(`Unknown breakpoint option '${part}'`)
+          if (!selectedInstance) throw new Error('A conditional breakpoint requires an explicit instance')
+          const requested = condition[1].trim().toUpperCase()
+          const variable = availableVariables.find(
+            (candidate) =>
+              candidate.path.toUpperCase() === requested || candidate.path.toUpperCase().endsWith(`.${requested}`),
+          )
+          if (!variable) throw new Error(`Unknown local IEC variable '${condition[1].trim()}'`)
+          const value = encodeIecDebugLiteral(variable, condition[3])
+          if (!value) throw new Error(`Conditions do not support ${variable.type}`)
+          breakpoint.condition = {
+            variableId: variable.id,
+            type: variable.type_code,
+            operator: condition[2] as NonNullable<IecDebugBreakpoint['condition']>['operator'],
+            value,
+          }
+        }
+
+        void window.bridge.debuggerSetIecBreakpointEx(breakpoint, true).then((result) => {
+          if (!result.success) {
+            toast({ title: 'Breakpoint Error', description: result.error, variant: 'fail' })
+            return
+          }
+          const next = new Set(iecDebugBreakpoints)
+          next.add(statement.id)
+          setIecDebugBreakpoints(next)
+        })
+        return true
+      } catch (error) {
+        toast({
+          title: 'Breakpoint Error',
+          description: error instanceof Error ? error.message : String(error),
+          variant: 'fail',
+        })
+        return false
+      }
+    },
+    [
+      currentIecDebugInstance,
+      currentIecDebugLocals,
+      iecDebugBreakpoints,
+      iecDebugMetadata,
+      setIecDebugBreakpoints,
+      statementAtLine,
+    ],
+  )
+
+  const configureIecBreakpoint = useCallback(
+    (line: number) => {
+      const statement = statementAtLine(line)
+      if (!statement || !iecDebugMetadata) return
+      const defaultInstance =
+        currentIecDebugInstance?.pou_id === statement.pou_id ? `instance=${currentIecDebugInstance.path}` : ''
+      setAdvancedBreakpointLine(line)
+      setAdvancedBreakpointSpecification(defaultInstance)
+      setAdvancedBreakpointOpen(true)
+    },
+    [currentIecDebugInstance, iecDebugMetadata, statementAtLine],
+  )
+
+  const closeAdvancedBreakpointDialog = useCallback(() => {
+    setAdvancedBreakpointOpen(false)
+    setAdvancedBreakpointLine(null)
+    setAdvancedBreakpointSpecification('')
+  }, [])
+
+  const submitAdvancedBreakpoint = useCallback(() => {
+    if (advancedBreakpointLine === null) return
+    if (applyIecBreakpointSpecification(advancedBreakpointLine, advancedBreakpointSpecification)) {
+      closeAdvancedBreakpointDialog()
+    }
+  }, [
+    advancedBreakpointLine,
+    advancedBreakpointSpecification,
+    applyIecBreakpointSpecification,
+    closeAdvancedBreakpointDialog,
+  ])
+
+  useEffect(() => {
+    const editorInstance = editorRef.current
+    if (!editorInstance || !isIecDebugSession) return
+    const disposable = editorInstance.onMouseDown((event) => {
+      if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position) return
+      if (event.event.rightButton) configureIecBreakpoint(event.target.position.lineNumber)
+      else toggleIecBreakpoint(event.target.position.lineNumber)
     })
     return () => disposable.dispose()
-  }, [editorMounted, iecDebugBreakpoints, iecDebugStatements, isIecDebugSession, setIecDebugBreakpoints])
+  }, [configureIecBreakpoint, editorMounted, isIecDebugSession, toggleIecBreakpoint])
 
-  const resumeIecDebug = (mode: 'continue' | 'step-into') => {
+  const resumeIecDebug = useCallback((mode: IecDebugResumeMode) => {
     void window.bridge.debuggerResumeIec(mode).then((result) => {
       if (!result.success) {
         toast({
@@ -321,7 +598,47 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
         })
       }
     })
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!isIecDebugSession) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const line = editorRef.current?.getPosition()?.lineNumber
+      if (event.key === 'F9' && line) {
+        event.preventDefault()
+        if (event.shiftKey) configureIecBreakpoint(line)
+        else toggleIecBreakpoint(line)
+      } else if (event.key === 'F5' && isIecDebugHalted) {
+        event.preventDefault()
+        resumeIecDebug('continue')
+      } else if (
+        event.key === 'F10' &&
+        isIecDebugHalted &&
+        (iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OVER) !== 0
+      ) {
+        event.preventDefault()
+        resumeIecDebug('step-over')
+      } else if (event.key === 'F11' && isIecDebugHalted) {
+        event.preventDefault()
+        if (
+          !event.shiftKey ||
+          ((iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OUT) !== 0 && iecDebugCallStack.length > 1)
+        ) {
+          resumeIecDebug(event.shiftKey ? 'step-out' : 'step-into')
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [
+    configureIecBreakpoint,
+    iecDebugCallStack.length,
+    iecDebugCapabilities,
+    isIecDebugHalted,
+    isIecDebugSession,
+    resumeIecDebug,
+    toggleIecBreakpoint,
+  ])
 
   const fbInstanceContext = useMemo(() => {
     if (!pou || pou.type !== 'function-block') return null
@@ -943,6 +1260,10 @@ void loop()
     },
     readOnly: isDebuggerVisible,
     glyphMargin: isIecDebugSession,
+    // Debug halts can navigate between POU models while the editor still has keyboard focus. Monaco's
+    // WordHighlighter rejects its pending delay with "Canceled" during that model switch, which the Electron
+    // development overlay reports as an application error. Debug values already provide the relevant highlights.
+    occurrencesHighlight: isDebuggerVisible ? 'off' : 'singleFile',
   }
 
   const handleDrop = (ev: React.DragEvent<HTMLDivElement>) => {
@@ -1090,33 +1411,62 @@ void loop()
               className={isIecDebugHalted ? 'font-semibold text-amber-600' : 'text-neutral-600 dark:text-neutral-300'}
             >
               {isIecDebugHalted
-                ? `HALTED · ${iecDebugPou?.name ?? name} · ${currentIecDebugStatement?.file ?? '?'} ${currentIecDebugStatement?.line ?? '?'}:${currentIecDebugStatement?.column ?? '?'} · ID ${currentIecDebugStatement?.id ?? '?'}`
+                ? `HALTED · ${currentIecDebugPou?.name ?? name}${currentIecDebugInstance ? ` · ${currentIecDebugInstance.path}` : ''} · ${currentIecDebugStatement?.file ?? '?'} ${currentIecDebugStatement?.line ?? '?'}:${currentIecDebugStatement?.column ?? '?'} · ID ${currentIecDebugStatement?.id ?? '?'}`
                 : 'IEC debugger RUN'}
             </span>
             <button
               type='button'
               disabled={!isIecDebugHalted}
-              className='rounded bg-brand px-2 py-1 text-white disabled:cursor-not-allowed disabled:opacity-40'
+              className='rounded bg-brand p-1.5 text-white disabled:cursor-not-allowed disabled:opacity-40'
               onClick={() => resumeIecDebug('continue')}
+              title='Continue (F5)'
+              aria-label='Continue'
             >
-              Continue
+              <VscDebugContinue size={16} />
             </button>
             <button
               type='button'
               disabled={!isIecDebugHalted}
-              className='rounded border border-neutral-300 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700'
+              className='rounded border border-neutral-300 p-1.5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700'
               onClick={() => resumeIecDebug('step-into')}
+              title='Step Into (F11)'
+              aria-label='Step Into'
             >
-              Step
+              <VscDebugStepInto size={16} />
+            </button>
+            <button
+              type='button'
+              disabled={!isIecDebugHalted || (iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OVER) === 0}
+              className='rounded border border-neutral-300 p-1.5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700'
+              onClick={() => resumeIecDebug('step-over')}
+              title='Step Over (F10)'
+              aria-label='Step Over'
+            >
+              <VscDebugStepOver size={16} />
+            </button>
+            <button
+              type='button'
+              disabled={
+                !isIecDebugHalted ||
+                (iecDebugCapabilities & IEC_DEBUG_CAP_STEP_OUT) === 0 ||
+                iecDebugCallStack.length <= 1
+              }
+              className='rounded border border-neutral-300 p-1.5 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700'
+              onClick={() => resumeIecDebug('step-out')}
+              title='Step Out (Shift+F11)'
+              aria-label='Step Out'
+            >
+              <VscDebugStepOut size={16} />
             </button>
             <span className='ml-auto text-neutral-500'>
-              {iecDebugBreakpoints.size}/{iecDebugStatus?.breakpointCapacity ?? 64} breakpoints
+              F9 breakpoint · Shift+F9 advanced · {iecDebugBreakpoints.size}/
+              {iecDebugStatus?.breakpointCapacity ?? 64}
             </span>
           </div>
         )}
         <PrimitiveEditor
           options={monacoEditorUserOptions}
-          height={isIecDebugSession ? 'calc(100% - 36px)' : '100%'}
+          height={isIecDebugSession ? `calc(100% - ${isIecDebugHalted ? 180 : 36}px)` : '100%'}
           width='100%'
           path={path}
           language={language}
@@ -1126,12 +1476,104 @@ void loop()
           onChange={handleWriteInPou}
           theme={shouldUseDarkMode ? 'openplc-dark' : 'openplc-light'}
           // Disabled: view state (cursor/scroll) is managed manually via Zustand store.
-          // Monaco's built-in saveViewState causes "Canceled" errors from WordHighlighter
-          // when restoring state on language switches (e.g., ST to Python).
+          // View state (cursor/scroll) is managed manually via Zustand. Keeping Monaco's built-in view-state
+          // restore disabled also avoids scheduling WordHighlighter work during language switches.
           saveViewState={false}
           keepCurrentModel={true}
         />
+        {isIecDebugSession && isIecDebugHalted && (
+          <div className='grid h-36 grid-cols-2 border-t border-neutral-200 bg-white text-xs dark:border-neutral-800 dark:bg-neutral-900'>
+            <section className='overflow-auto border-r border-neutral-200 p-2 dark:border-neutral-800'>
+              <div className='mb-1 font-semibold text-neutral-700 dark:text-neutral-200'>IEC Call Stack</div>
+              {(iecDebugCapabilities & IEC_DEBUG_CAP_CALL_STACK) === 0 ? (
+                <div className='text-neutral-500'>Target does not provide a logical IEC call stack.</div>
+              ) : (
+                [...iecDebugCallStack].reverse().map((frame, index) => {
+                  const framePou = iecDebugMetadata?.pous.find((candidate) => candidate.id === frame.pouId)
+                  const frameInstance = iecDebugMetadata?.instances.find(
+                    (candidate) => candidate.id === frame.instanceId,
+                  )
+                  const frameStatement = iecDebugMetadata?.statements.find(
+                    (candidate) => candidate.id === frame.statementId,
+                  )
+                  return (
+                    <div key={`${frame.pouId}:${frame.instanceId}:${index}`} className='flex gap-2 py-0.5'>
+                      <span className='w-5 text-right text-neutral-400'>{index}</span>
+                      <span className='font-medium'>{framePou?.name ?? `POU ${frame.pouId}`}</span>
+                      <span className='text-neutral-500'>{frameInstance?.path ?? 'static'}</span>
+                      <span className='ml-auto text-neutral-400'>L{frameStatement?.line ?? '?'}</span>
+                    </div>
+                  )
+                })
+              )}
+            </section>
+            <section className='overflow-auto p-2'>
+              <div className='mb-1 font-semibold text-neutral-700 dark:text-neutral-200'>Locals</div>
+              {currentIecDebugLocals.map((variable) => (
+                <div key={variable.id} className='flex gap-2 py-0.5 font-mono'>
+                  <span className='truncate text-neutral-700 dark:text-neutral-200'>
+                    {currentIecDebugInstance
+                      ? variable.path.replace(`${currentIecDebugInstance.path}.`, '')
+                      : variable.path}
+                  </span>
+                  <span className='ml-auto text-neutral-400'>{variable.type}</span>
+                  <span className='w-28 truncate text-right text-brand'>{iecDebugLocalValues.get(variable.id) ?? '…'}</span>
+                </div>
+              ))}
+            </section>
+          </div>
+        )}
       </div>
+      <Modal
+        open={advancedBreakpointOpen}
+        onOpenChange={(open) => {
+          if (!open) closeAdvancedBreakpointDialog()
+        }}
+      >
+        <ModalContent className='flex h-fit min-h-0 w-[640px] select-none flex-col gap-4 rounded-lg p-6'>
+          <ModalTitle className='text-lg font-semibold text-neutral-950 dark:text-white'>
+            Advanced IEC Breakpoint
+          </ModalTitle>
+          <div className='text-sm text-neutral-600 dark:text-neutral-300'>
+            Separate options with semicolons, for example:
+            <div className='mt-2 rounded bg-neutral-100 px-3 py-2 font-mono text-xs dark:bg-neutral-850'>
+              instance=DEBUGTEST.PUMP2; Counter&gt;=10; change=Counter; hit=100
+            </div>
+          </div>
+          <label htmlFor='iec-breakpoint-specification' className='text-sm font-medium text-neutral-800 dark:text-neutral-100'>
+            Breakpoint specification for line {advancedBreakpointLine ?? '?'}
+          </label>
+          <input
+            id='iec-breakpoint-specification'
+            autoFocus
+            className='h-10 w-full rounded-md border border-neutral-200 bg-white px-3 font-mono text-sm text-neutral-900 outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100'
+            value={advancedBreakpointSpecification}
+            onChange={(event) => setAdvancedBreakpointSpecification(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                submitAdvancedBreakpoint()
+              }
+            }}
+          />
+          <div className='flex justify-end gap-3'>
+            <button
+              type='button'
+              className='h-9 rounded-md bg-neutral-100 px-5 font-medium text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100'
+              onClick={closeAdvancedBreakpointDialog}
+            >
+              Cancel
+            </button>
+            <button
+              type='button'
+              className='h-9 rounded-md bg-brand px-5 font-medium text-white'
+              onClick={submitAdvancedBreakpoint}
+            >
+              Set Breakpoint
+            </button>
+          </div>
+        </ModalContent>
+      </Modal>
       <Modal open={isOpen} onOpenChange={setIsOpen}>
         <ModalContent className='flex h-56 w-96 select-none flex-col justify-between gap-2 rounded-lg p-8'>
           <ModalTitle className='text-sm font-medium text-neutral-950 dark:text-white'>

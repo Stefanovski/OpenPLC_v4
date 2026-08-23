@@ -40,6 +40,22 @@ export type IecDebugVariable = {
   type_code: IecDebugVariableType
   legacy_index: number
   writable: boolean
+  instance_id: number
+  path: string
+}
+
+export type IecDebugInstance = {
+  id: number
+  key: string
+  name: string
+  path: string
+  source_path: string
+  pou_id: number
+  parent_id: number
+  kind: 'program' | 'function-block'
+  c_expression: string
+  root_c_symbol: string
+  root_type: string
 }
 
 type IecDebugMetadata = {
@@ -60,7 +76,7 @@ type IecDebugMetadata = {
     type: string
   }>
   variables: IecDebugVariable[]
-  instances: unknown[]
+  instances: Array<Omit<IecDebugInstance, 'c_expression' | 'root_c_symbol' | 'root_type'>>
 }
 
 const IEC_TYPE_CODES: Readonly<Record<string, IecDebugVariableType>> = {
@@ -169,6 +185,8 @@ export const parseIecDebugVariables = (variablesCsv: string): IecDebugVariable[]
       type_code: IEC_TYPE_CODES[type] ?? IecDebugVariableType.Unknown,
       legacy_index: legacyIndex,
       writable: (IEC_TYPE_CODES[type] ?? IecDebugVariableType.Unknown) !== IecDebugVariableType.Unknown,
+      instance_id: 0,
+      path: name,
     })
     legacyIndex += 1
   }
@@ -176,14 +194,120 @@ export const parseIecDebugVariables = (variablesCsv: string): IecDebugVariable[]
   return variables.sort((left, right) => left.id - right.id)
 }
 
-export const enrichIecDebugMetadata = (metadataJson: string, variables: IecDebugVariable[]): string => {
+const parseProgramRoots = (variablesCsv: string) => {
+  const roots: Array<{ sourcePath: string; type: string; cSymbol: string }> = []
+  let inPrograms = false
+  for (const rawLine of variablesCsv.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === '// Programs') {
+      inPrograms = true
+      continue
+    }
+    if (line === '// Variables') {
+      inPrograms = false
+      continue
+    }
+    if (!inPrograms || !line || line.startsWith('//')) continue
+    const fields = line.split(';')
+    const sourcePath = fields[1]?.trim().toUpperCase()
+    const type = fields[2]?.trim().toUpperCase()
+    if (!sourcePath || !type) continue
+    const segments = sourcePath.split('.')
+    if (segments.length < 2) throw new Error(`Invalid IEC program instance path '${sourcePath}'`)
+    roots.push({ sourcePath, type, cSymbol: `${segments[segments.length - 2]}__${segments[segments.length - 1]}` })
+  }
+  return roots
+}
+
+const toIecDisplayPath = (path: string): string => path.replace(/\.value\.table/g, '')
+
+export const parseIecDebugInstances = (
+  variablesCsv: string,
+  pous: IecDebugMetadata['pous'],
+): IecDebugInstance[] => {
+  const pouByName = new Map(pous.map((pou) => [pou.name.toUpperCase(), pou]))
+  const roots = parseProgramRoots(variablesCsv)
+  const candidates = roots.map((root) => ({ sourcePath: root.sourcePath, type: root.type, root }))
+
+  let inVariables = false
+  for (const rawLine of variablesCsv.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line === '// Variables') {
+      inVariables = true
+      continue
+    }
+    if (!inVariables || !line || line.startsWith('//')) continue
+    const fields = line.split(';')
+    if (fields[1]?.trim().toUpperCase() !== 'FB') continue
+    const sourcePath = fields[2]?.trim().toUpperCase()
+    const type = fields[4]?.trim().toUpperCase()
+    if (!sourcePath || !type || roots.some((root) => root.sourcePath === sourcePath)) continue
+    const root = roots
+      .filter((entry) => sourcePath.startsWith(`${entry.sourcePath}.`))
+      .sort((left, right) => right.sourcePath.length - left.sourcePath.length)[0]
+    if (root) candidates.push({ sourcePath, type, root })
+  }
+
+  const instances: IecDebugInstance[] = []
+  for (const candidate of candidates.sort((left, right) => left.sourcePath.length - right.sourcePath.length)) {
+    const pou = pouByName.get(candidate.type)
+    if (!pou) continue
+    const suffix = candidate.sourcePath.slice(candidate.root.sourcePath.length).replace(/^\./, '')
+    const path = suffix ? `${candidate.root.type}.${toIecDisplayPath(suffix)}` : candidate.root.type
+    const key = `instance-v1:${path}:${candidate.type}`
+    const id = fnv1a32(key)
+    if (id === 0) throw new Error(`IEC debug instance ID 0 is reserved (key '${key}')`)
+    const parent = instances
+      .filter((instance) => candidate.sourcePath.startsWith(`${instance.source_path}.`))
+      .sort((left, right) => right.source_path.length - left.source_path.length)[0]
+    instances.push({
+      id,
+      key,
+      name: path.split('.').at(-1) ?? path,
+      path,
+      source_path: candidate.sourcePath,
+      pou_id: pou.id,
+      parent_id: parent?.id ?? 0,
+      kind: suffix ? 'function-block' : 'program',
+      c_expression: suffix ? `${candidate.root.cSymbol}.${suffix}` : candidate.root.cSymbol,
+      root_c_symbol: candidate.root.cSymbol,
+      root_type: candidate.root.type,
+    })
+  }
+  return instances.sort((left, right) => left.id - right.id)
+}
+
+export const bindIecDebugVariablesToInstances = (
+  variables: IecDebugVariable[],
+  instances: IecDebugInstance[],
+): IecDebugVariable[] =>
+  variables.map((variable) => {
+    const instance = instances
+      .filter(
+        (candidate) =>
+          variable.name === candidate.source_path || variable.name.startsWith(`${candidate.source_path}.`),
+      )
+      .sort((left, right) => right.source_path.length - left.source_path.length)[0]
+    const relativePath = instance ? variable.name.slice(instance.source_path.length).replace(/^\./, '') : variable.name
+    return {
+      ...variable,
+      instance_id: instance?.id ?? 0,
+      path: instance && relativePath ? `${instance.path}.${toIecDisplayPath(relativePath)}` : variable.name,
+    }
+  })
+
+export const enrichIecDebugMetadata = (
+  metadataJson: string,
+  variables: IecDebugVariable[],
+  instances: IecDebugInstance[] = [],
+): string => {
   const metadata = JSON.parse(metadataJson) as IecDebugMetadata
   if (metadata.format !== 'eurosonic-plc-debug' || metadata.version !== 1 || metadata.id_algorithm !== 'fnv1a32') {
     throw new Error('Unsupported IEC debug metadata format')
   }
 
   const ids = new Map<number, string>()
-  for (const record of [...metadata.pous, ...metadata.statements, ...variables]) {
+  for (const record of [...metadata.pous, ...metadata.statements, ...variables, ...instances]) {
     const existing = ids.get(record.id)
     if (existing && existing !== record.key) {
       throw new Error(
@@ -194,15 +318,30 @@ export const enrichIecDebugMetadata = (metadataJson: string, variables: IecDebug
   }
 
   metadata.variables = variables
+  metadata.instances = instances.map(({ c_expression, root_c_symbol, root_type, ...instance }) => instance)
   metadata.build_id = fnv1a64([...ids.entries()].sort(([left], [right]) => left - right).map(([, key]) => key))
   return `${JSON.stringify(metadata, null, 2)}\n`
 }
 
-export const renderIecDebugVariableAdapter = (variables: IecDebugVariable[]): string => {
+export const renderIecDebugVariableAdapter = (
+  variables: IecDebugVariable[],
+  instances: IecDebugInstance[] = [],
+): string => {
   const descriptors = variables
     .map(
       (variable) =>
         `    { UINT32_C(${variable.id}), UINT16_C(${variable.type_code}), UINT16_C(${variable.legacy_index}), ${variable.writable ? '1' : '0'} },`,
+    )
+    .join('\n')
+  const roots = Array.from(
+    new Map(instances.map((instance) => [instance.root_c_symbol, instance])).values(),
+  )
+    .map((instance) => `extern ${instance.root_type} ${instance.root_c_symbol};`)
+    .join('\n')
+  const instanceDescriptors = instances
+    .map(
+      (instance) =>
+        `    { UINT32_C(${instance.id}), UINT32_C(${instance.pou_id}), (uintptr_t)&(${instance.c_expression}) },`,
     )
     .join('\n')
 
@@ -210,6 +349,8 @@ export const renderIecDebugVariableAdapter = (variables: IecDebugVariable[]): st
 // ${IEC_DEBUG_VARIABLE_ADAPTER_MARKER}
 #include "plc_debug_runtime.h"
 #include <string.h>
+
+${roots}
 
 typedef struct
 {
@@ -222,6 +363,30 @@ typedef struct
 static const plc_debug_variable_descriptor_t plc_debug_variables[] = {
 ${descriptors}
 };
+
+typedef struct
+{
+    uint32_t id;
+    uint32_t pou_id;
+    uintptr_t address;
+} plc_debug_instance_descriptor_t;
+
+static const plc_debug_instance_descriptor_t plc_debug_instances[] = {
+${instanceDescriptors}
+};
+
+#define PLC_DEBUG_INSTANCE_COUNT (sizeof(plc_debug_instances) / sizeof(plc_debug_instances[0]))
+
+uint32_t plc_debug_instance_resolve(uint32_t pou_id, uintptr_t address)
+{
+    size_t index;
+    for (index = 0; index < PLC_DEBUG_INSTANCE_COUNT; index++)
+    {
+        if ((plc_debug_instances[index].pou_id == pou_id) && (plc_debug_instances[index].address == address))
+            return plc_debug_instances[index].id;
+    }
+    return PLC_DEBUG_INSTANCE_NONE;
+}
 
 #define PLC_DEBUG_VARIABLE_COUNT (sizeof(plc_debug_variables) / sizeof(plc_debug_variables[0]))
 

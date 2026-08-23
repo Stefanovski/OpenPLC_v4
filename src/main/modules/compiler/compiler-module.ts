@@ -23,9 +23,11 @@ import JSZip from 'jszip'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import {
+  bindIecDebugVariablesToInstances,
   enrichIecDebugMetadata,
   IEC_DEBUG_METADATA_FILE,
   IEC_DEBUG_VARIABLE_ADAPTER_MARKER,
+  parseIecDebugInstances,
   parseIecDebugVariables,
   prepareProjectForIecDebug,
   renderIecDebugVariableAdapter,
@@ -588,10 +590,14 @@ class CompilerModule {
     if (debugSource.includes(IEC_DEBUG_VARIABLE_ADAPTER_MARKER)) {
       throw new Error('IEC debug variable adapter was generated more than once')
     }
-    const variables = parseIecDebugVariables(variablesCsv)
+    const parsedMetadata = JSON.parse(metadataJson) as {
+      pous: Array<{ id: number; key: string; name: string; kind: string }>
+    }
+    const instances = parseIecDebugInstances(variablesCsv, parsedMetadata.pous)
+    const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv), instances)
     await Promise.all([
-      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables), 'utf8'),
-      writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables)}`, 'utf8'),
+      writeFile(metadataPath, enrichIecDebugMetadata(metadataJson, variables, instances), 'utf8'),
+      writeFile(debugSourcePath, `${debugSource}${renderIecDebugVariableAdapter(variables, instances)}`, 'utf8'),
     ])
   }
 
@@ -2270,7 +2276,18 @@ class CompilerModule {
       runtimeIpAddress,
       runtimeJwtToken,
       requestedIecDebug = false,
-    ] = args as [string, string, string | null, boolean, ProjectState['data'], string | null, string | null, boolean?]
+      reuseDebugCompilation = false,
+    ] = args as [
+      string,
+      string,
+      string | null,
+      boolean,
+      ProjectState['data'],
+      string | null,
+      string | null,
+      boolean?,
+      boolean?,
+    ]
 
     const generateIecDebug = requestedIecDebug && boardTarget === 'Eurosonic_Gen2'
 
@@ -2286,6 +2303,34 @@ class CompilerModule {
 
     let buildMD5Hash: string | null = null
 
+    const extractBuildMD5Hash = async (): Promise<string | null> => {
+      try {
+        const programStPath = join(sourceTargetFolderPath, 'program.st')
+        const programStContent = await fs.readFile(programStPath, 'utf-8')
+        const md5Pattern = /\(\*DBG:char md5\[\] = "([a-fA-F0-9]{32})";?\*\)/
+        const match = programStContent.match(md5Pattern)
+
+        if (match?.[1]) {
+          _mainProcessPort.postMessage({
+            logLevel: 'info',
+            message: `Extracted MD5 hash from program.st: ${match[1]}`,
+          })
+          return match[1]
+        }
+
+        _mainProcessPort.postMessage({
+          logLevel: 'warning',
+          message: 'Could not extract MD5 from program.st, continuing without MD5',
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Error extracting MD5 from program.st: ${error as string}`,
+        })
+      }
+      return null
+    }
+
     // --- Print basic information ---
     _mainProcessPort.postMessage({
       logLevel: 'info',
@@ -2299,223 +2344,205 @@ class CompilerModule {
       message: this.getHostHardwareInfo(),
     })
 
-    if (!this.validateFbdVariables(projectData, _mainProcessPort, 'Stopping compilation process.')) return
-
-    // --- Check tools availability ---
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
-
-    try {
-      const [iec2cCheckResult] = await Promise.all([this.checkIec2cAvailability()])
-      _mainProcessPort.postMessage({
-        message: `IEC2C available at version ${iec2cCheckResult.data}`,
-      })
-    } catch (_error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-        message: `${_error}\nStopping compilation process.`,
-      })
-      _mainProcessPort.close()
-      return
-    }
-    // STN: STEP1
-    // Step 1: Create basic directories
-    try {
-      await this.createBasicDirectories(normalizedProjectPath, boardTarget)
-      await this.removeIecDebugMetadata(sourceTargetFolderPath)
+    if (reuseDebugCompilation) {
       _mainProcessPort.postMessage({
         logLevel: 'info',
-        message: 'Directories for compilation source files created.',
+        message: 'Reusing the files from the completed debug compilation; PLC sources will not be generated again.',
       })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
-        message: `${error}\nStopping compilation process.`,
-      })
-      _mainProcessPort.close()
-      return
-    }
+      buildMD5Hash = await extractBuildMD5Hash()
+    } else {
+      if (!this.validateFbdVariables(projectData, _mainProcessPort, 'Stopping compilation process.')) return
 
-    // STN: STEP2
-    // Step 2: Generate XML from JSON
-    let generateXMLResult: MethodsResult<{ xmlPath: string; xmlContent: string }> = { success: false }
-    try {
-      const projectDataForBuild = generateIecDebug
-        ? await this.prepareIecDebugSources(sourceTargetFolderPath, projectData)
-        : projectData
-      generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectDataForBuild)
-      _mainProcessPort.postMessage({
-        logLevel: 'info',
-        message: `Generated XML from JSON at: ${generateXMLResult.data?.xmlPath as string}`,
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: `Error generating XML from JSON: ${error as string}\nStopping compilation process.`,
-      })
-      _mainProcessPort.close()
-      return
-    }
+      // --- Check tools availability ---
+      _mainProcessPort.postMessage({ logLevel: 'info', message: 'Checking tools availability...' })
 
-    // STN: STEP3
-    // Step 3: Transpile XML to ST
-    const generatedXMLFilePath = join(sourceTargetFolderPath, 'plc.xml') // Assuming the XML file is named 'plc.xml'
-    try {
-      await this.handleTranspileXMLtoST(generatedXMLFilePath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: `Error transpiling XML to ST: ${error as string}\nStopping compilation process.`,
-      })
-      _mainProcessPort.close()
-      return
-    }
-
-    // STN: STEP4
-    // -- Copy static files --
-    _mainProcessPort.postMessage({ logLevel: 'info', message: 'Copying static files...' })
-    try {
-      await this.copyStaticFiles(compilationPath, boardRuntime)
-      _mainProcessPort.postMessage({ logLevel: 'info', message: 'Static files copied successfully.' })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: `Error copying static files: ${error as string}\nStopping compilation process.`,
-      })
-      _mainProcessPort.close()
-      return
-    }
-
-    // STN: STEP5
-    // Step 4: Generate C code from ST
-    const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st') // Assuming the ST file is named 'program.st'
-    try {
-      await this.handleTranspileSTtoC(
-        generatedSTFilePath,
-        (data, logLevel) => {
-          _mainProcessPort.postMessage({ logLevel, message: data })
-        },
-        generateIecDebug,
-      )
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
-
-    // STN: STEP6
-    // Step 5: Generate debug files
-    try {
-      await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-      if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
-
-    try {
-      const fs = await import('fs/promises')
-      const programStPath = join(sourceTargetFolderPath, 'program.st')
-      const programStContent = await fs.readFile(programStPath, 'utf-8')
-      const md5Pattern = /\(\*DBG:char md5\[\] = "([a-fA-F0-9]{32})";?\*\)/
-      const match = programStContent.match(md5Pattern)
-
-      if (match && match[1]) {
-        buildMD5Hash = match[1]
+      try {
+        const [iec2cCheckResult] = await Promise.all([this.checkIec2cAvailability()])
+        _mainProcessPort.postMessage({
+          message: `IEC2C available at version ${iec2cCheckResult.data}`,
+        })
+      } catch (_error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+          message: `${_error}\nStopping compilation process.`,
+        })
+        _mainProcessPort.close()
+        return
+      }
+      // STN: STEP1
+      // Step 1: Create basic directories
+      try {
+        await this.createBasicDirectories(normalizedProjectPath, boardTarget)
+        await this.removeIecDebugMetadata(sourceTargetFolderPath)
         _mainProcessPort.postMessage({
           logLevel: 'info',
-          message: `Extracted MD5 hash from program.st: ${buildMD5Hash}`,
+          message: 'Directories for compilation source files created.',
         })
-      } else {
+      } catch (error) {
         _mainProcessPort.postMessage({
-          logLevel: 'warn',
-          message: 'Could not extract MD5 from program.st, continuing without MD5',
+          logLevel: 'error',
+          // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+          message: `${error}\nStopping compilation process.`,
         })
-        buildMD5Hash = null
+        _mainProcessPort.close()
+        return
       }
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: `Error extracting MD5 from program.st: ${error as string}`,
-      })
-      buildMD5Hash = null
-    }
 
-    // STN: STEP7
-    // Step 6: Generate glue vars
-    try {
-      await this.handleGenerateGlueVars(sourceTargetFolderPath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
+      // STN: STEP2
+      // Step 2: Generate XML from JSON
+      let generateXMLResult: MethodsResult<{ xmlPath: string; xmlContent: string }> = { success: false }
+      try {
+        const projectDataForBuild = generateIecDebug
+          ? await this.prepareIecDebugSources(sourceTargetFolderPath, projectData)
+          : projectData
+        generateXMLResult = await this.handleGenerateXMLfromJSON(sourceTargetFolderPath, projectDataForBuild)
+        _mainProcessPort.postMessage({
+          logLevel: 'info',
+          message: `Generated XML from JSON at: ${generateXMLResult.data?.xmlPath as string}`,
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Error generating XML from JSON: ${error as string}\nStopping compilation process.`,
+        })
+        _mainProcessPort.close()
+        return
+      }
 
-    // STN: STEP8
-    // Step 7: Generate C/C++ blocks header file
-    try {
-      await this.handleGenerateCBlocksHeader(projectData, sourceTargetFolderPath, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
-    }
+      // STN: STEP3
+      // Step 3: Transpile XML to ST
+      const generatedXMLFilePath = join(sourceTargetFolderPath, 'plc.xml') // Assuming the XML file is named 'plc.xml'
+      try {
+        await this.handleTranspileXMLtoST(generatedXMLFilePath, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Error transpiling XML to ST: ${error as string}\nStopping compilation process.`,
+        })
+        _mainProcessPort.close()
+        return
+      }
 
-    // STN: STEP9
-    // Step 8: Generate C/C++ blocks code file
-    try {
-      await this.handleGenerateCBlocksCode(projectData, compilationPath, boardRuntime, (data, logLevel) => {
-        _mainProcessPort.postMessage({ logLevel, message: data })
-      })
-    } catch (error) {
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
-      })
-      _mainProcessPort.postMessage({
-        logLevel: 'error',
-        message: 'Stopping compilation process.',
-      })
-      _mainProcessPort.close()
-      return
+      // STN: STEP4
+      // -- Copy static files --
+      _mainProcessPort.postMessage({ logLevel: 'info', message: 'Copying static files...' })
+      try {
+        await this.copyStaticFiles(compilationPath, boardRuntime)
+        _mainProcessPort.postMessage({ logLevel: 'info', message: 'Static files copied successfully.' })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: `Error copying static files: ${error as string}\nStopping compilation process.`,
+        })
+        _mainProcessPort.close()
+        return
+      }
+
+      // STN: STEP5
+      // Step 4: Generate C code from ST
+      const generatedSTFilePath = join(sourceTargetFolderPath, 'program.st') // Assuming the ST file is named 'program.st'
+      try {
+        await this.handleTranspileSTtoC(
+          generatedSTFilePath,
+          (data, logLevel) => {
+            _mainProcessPort.postMessage({ logLevel, message: data })
+          },
+          generateIecDebug,
+        )
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping compilation process.',
+        })
+        _mainProcessPort.close()
+        return
+      }
+
+      // STN: STEP6
+      // Step 5: Generate debug files
+      try {
+        await this.handleGenerateDebugFiles(sourceTargetFolderPath, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+        if (generateIecDebug) await this.finalizeIecDebugArtifacts(sourceTargetFolderPath)
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping compilation process.',
+        })
+        _mainProcessPort.close()
+        return
+      }
+
+      buildMD5Hash = await extractBuildMD5Hash()
+
+      // STN: STEP7
+      // Step 6: Generate glue vars
+      try {
+        await this.handleGenerateGlueVars(sourceTargetFolderPath, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping compilation process.',
+        })
+        _mainProcessPort.close()
+        return
+      }
+
+      // STN: STEP8
+      // Step 7: Generate C/C++ blocks header file
+      try {
+        await this.handleGenerateCBlocksHeader(projectData, sourceTargetFolderPath, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping compilation process.',
+        })
+        _mainProcessPort.close()
+        return
+      }
+
+      // STN: STEP9
+      // Step 8: Generate C/C++ blocks code file
+      try {
+        await this.handleGenerateCBlocksCode(projectData, compilationPath, boardRuntime, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: typeof error === 'string' ? error : error instanceof Error ? error.message : JSON.stringify(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping compilation process.',
+        })
+        _mainProcessPort.close()
+        return
+      }
     }
 
     // STN: STEP10
