@@ -1,4 +1,5 @@
 import { BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/fbd/block'
+import { GraphicalIecBreakpointDialog } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-breakpoint-dialog'
 import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
 import { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
 import { FBDBody } from '@root/renderer/components/_molecules/graphical-editor/fbd'
@@ -106,8 +107,22 @@ export default function FbdEditor() {
         isHalted={graphicalDebugControls.isHalted}
         resume={graphicalDebugControls.resume}
       />
+      <GraphicalIecBreakpointDialog
+        open={graphicalDebugControls.advancedBreakpointOpen}
+        specification={graphicalDebugControls.advancedBreakpointSpecification}
+        elementName={selectedNode?.id}
+        instancePath={graphicalDebugControls.selectedInstance?.path}
+        onSpecificationChange={graphicalDebugControls.setAdvancedBreakpointSpecification}
+        onClose={graphicalDebugControls.closeAdvancedBreakpoint}
+        onSubmit={graphicalDebugControls.submitAdvancedBreakpoint}
+      />
       {flow?.rung ? (
-        <FBDBody rung={flow?.rung} nodeDivergences={nodeDivergences} isDebuggerActive={isDebuggerVisible} />
+        <FBDBody
+          rung={flow?.rung}
+          nodeDivergences={nodeDivergences}
+          isDebuggerActive={isDebuggerVisible}
+          selectedInstanceId={graphicalDebugControls.selectedInstance?.id}
+        />
       ) : (
         <span>No rung found for editor</span>
       )}

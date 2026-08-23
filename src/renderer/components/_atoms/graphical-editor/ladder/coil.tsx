@@ -10,7 +10,11 @@ import {
 } from '@root/renderer/assets/icons/flow/Coil'
 import { useGraphicalIecBreakpoint } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
-import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
+import {
+  getGraphicalDebugSample,
+  type LdCoilDebugState,
+  parseGraphicalDebugBoolean,
+} from '@root/renderer/utils/graphical-debug'
 import { cn, generateNumericUUID } from '@root/utils'
 import type { Node, NodeProps } from '@xyflow/react'
 import { Position } from '@xyflow/react'
@@ -26,6 +30,7 @@ import { getLadderPouVariablesRungNodeAndEdges } from './utils'
 export type CoilNode = Node<
   BasicNodeData & {
     variant: 'default' | 'negated' | 'risingEdge' | 'fallingEdge' | 'set' | 'reset'
+    debugPowerFlow?: LdCoilDebugState
   }
 >
 type CoilProps = NodeProps<CoilNode>
@@ -175,6 +180,9 @@ export const Coil = (block: CoilProps) => {
   }
 
   const debuggerFillColor = getDebuggerFillColor()
+  const debugPowerFlowTitle = data.debugPowerFlow
+    ? `Calculated rung input: ${data.debugPowerFlow.inputPower.value ?? 'unavailable'} (${data.debugPowerFlow.inputPower.quality}); actual coil value: ${data.debugPowerFlow.actualValue === undefined ? 'unavailable' : data.debugPowerFlow.actualValue ? 'TRUE' : 'FALSE'}${data.debugPowerFlow.differs ? '; values differ due to coil semantics or another write' : ''}`
+    : undefined
 
   const inputWrapperRef = useRef<HTMLDivElement>(null)
   const inputVariableRef = useRef<
@@ -433,8 +441,14 @@ export const Coil = (block: CoilProps) => {
         )}
         style={{ width: DEFAULT_COIL_BLOCK_WIDTH, height: DEFAULT_COIL_BLOCK_HEIGHT }}
         onClick={isDebuggerVisible ? handleClick : undefined}
+        title={debugPowerFlowTitle}
       >
         {coil.svg(wrongVariable, debuggerFillColor)}
+        {isDebuggerVisible && data.debugPowerFlow?.differs && (
+          <span className='absolute -right-3 -top-3 rounded bg-amber-500 px-1 text-[9px] font-bold text-neutral-950'>
+            !=
+          </span>
+        )}
         <div className='absolute left-1/2 w-[72px] -translate-x-1/2' ref={inputWrapperRef}>
           <HighlightedTextArea
             id={`coil-variable-input-${id}`}

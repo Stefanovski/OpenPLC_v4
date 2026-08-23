@@ -178,7 +178,7 @@ export const NavigationPanelBreadcrumbs = ({
           >
             {fbInstances.map((inst) => (
               <option key={inst.key} value={inst.key}>
-                {inst.programName}.{inst.fbVariableName}
+                {inst.path ?? `${inst.programName}.${inst.fbVariableName}`}
               </option>
             ))}
           </select>

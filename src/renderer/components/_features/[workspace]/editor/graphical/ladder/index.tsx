@@ -16,6 +16,7 @@ import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import * as Portal from '@radix-ui/react-portal'
 import { GraphicalDebugStatus } from '@root/renderer/components/_atoms/graphical-editor/graphical-debug-status'
+import { GraphicalIecBreakpointDialog } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-breakpoint-dialog'
 import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
 import { BlockNode, BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/ladder/block'
 import { CoilNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/coil'
@@ -334,6 +335,15 @@ export default function LadderEditor() {
         isHalted={graphicalDebugControls.isHalted}
         resume={graphicalDebugControls.resume}
       />
+      <GraphicalIecBreakpointDialog
+        open={graphicalDebugControls.advancedBreakpointOpen}
+        specification={graphicalDebugControls.advancedBreakpointSpecification}
+        elementName={selectedGraphicalNode?.nodeId}
+        instancePath={graphicalDebugControls.selectedInstance?.path}
+        onSpecificationChange={graphicalDebugControls.setAdvancedBreakpointSpecification}
+        onClose={graphicalDebugControls.closeAdvancedBreakpoint}
+        onSubmit={graphicalDebugControls.submitAdvancedBreakpoint}
+      />
       {isDebuggerVisible && <GraphicalDebugStatus />}
       <div className='flex flex-1 flex-col gap-4 px-2'>
         <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
@@ -354,6 +364,7 @@ export default function LadderEditor() {
                   })}
                   nodeDivergences={nodeDivergences}
                   isDebuggerActive={isDebuggerVisible}
+                  selectedInstanceId={graphicalDebugControls.selectedInstance?.id}
                 />
               ))}
             </SortableContext>

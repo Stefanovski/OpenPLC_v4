@@ -34,6 +34,12 @@
   box-shadow: 0 0 14px rgb(245 158 11 / 45%);
 }
 
+.react-flow__node.iec-graphical-debug-related:not(.iec-graphical-debug-current) {
+  border-radius: 4px;
+  outline: 1px solid rgb(245 158 11 / 45%);
+  outline-offset: 3px;
+}
+
 .react-flow__node.iec-graphical-debug-breakpoint::before {
   content: '';
   position: absolute;

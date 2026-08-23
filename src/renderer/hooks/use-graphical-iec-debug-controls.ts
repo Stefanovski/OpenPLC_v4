@@ -1,8 +1,9 @@
 import { toast } from '@root/renderer/components/_features/[app]/toast/use-toast'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { findGraphicalDebugBinding } from '@root/renderer/utils/graphical-debug'
+import { buildIecDebugBreakpoint, resolveIecDebugInstance } from '@root/renderer/utils/iec-debug'
 import type { IecDebugResumeMode } from '@root/types/PLC/iec-debug'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const IEC_DEBUG_CAP_STEP_OVER = 1 << 5
 const IEC_DEBUG_CAP_STEP_OUT = 1 << 6
@@ -61,15 +62,35 @@ const useGraphicalIecBreakpoint = (selection?: GraphicalDebugSelection) => {
 const useGraphicalIecDebugControls = (selection?: GraphicalDebugSelection) => {
   const {
     editor,
-    workspace: { isDebuggerVisible, iecDebugMetadata, iecDebugStatus, iecDebugCapabilities, iecDebugCallStack },
+    workspace: {
+      isDebuggerVisible,
+      iecDebugMetadata,
+      iecDebugStatus,
+      iecDebugCapabilities,
+      iecDebugCallStack,
+      iecDebugBreakpoints,
+      fbDebugInstances,
+      fbSelectedInstance,
+    },
+    workspaceActions: { setIecDebugBreakpoints },
   } = useOpenPLCStore()
   const { binding, hasBreakpoint, toggleBreakpoint } = useGraphicalIecBreakpoint(selection)
+  const [advancedBreakpointOpen, setAdvancedBreakpointOpen] = useState(false)
+  const [advancedBreakpointSpecification, setAdvancedBreakpointSpecification] = useState('')
   const isHalted = iecDebugStatus?.state === 1
   const isGraphicalSession =
     isDebuggerVisible &&
     iecDebugMetadata !== null &&
     editor.type === 'plc-graphical' &&
     (editor.graphical.language === 'fbd' || editor.graphical.language === 'ld')
+
+  const selectedInstance = useMemo(() => {
+    const fbTypeKey = editor.meta.name.toUpperCase()
+    const selectedKey = fbSelectedInstance.get(fbTypeKey)
+    const selected = (fbDebugInstances.get(fbTypeKey) ?? []).find((instance) => instance.key === selectedKey)
+    const selectedPath = selected?.path ?? (selected ? `${selected.programName}.${selected.fbVariableName}` : undefined)
+    return resolveIecDebugInstance(iecDebugMetadata, editor.meta.name, iecDebugStatus?.currentInstanceId, selectedPath)
+  }, [editor.meta.name, fbDebugInstances, fbSelectedInstance, iecDebugMetadata, iecDebugStatus?.currentInstanceId])
 
   const resume = useCallback((mode: IecDebugResumeMode) => {
     void window.bridge.debuggerResumeIec(mode).then((result) => {
@@ -83,17 +104,70 @@ const useGraphicalIecDebugControls = (selection?: GraphicalDebugSelection) => {
     })
   }, [])
 
+  const closeAdvancedBreakpoint = useCallback(() => {
+    setAdvancedBreakpointOpen(false)
+    setAdvancedBreakpointSpecification('')
+  }, [])
+
+  const openAdvancedBreakpoint = useCallback(() => {
+    if (!binding || !iecDebugMetadata) {
+      toast({
+        title: 'No executable graphical element selected',
+        description: 'Select a mapped block, FBD output, or LD coil before pressing Shift+F9.',
+        variant: 'fail',
+      })
+      return
+    }
+    setAdvancedBreakpointSpecification(selectedInstance ? `instance=${selectedInstance.path}` : '')
+    setAdvancedBreakpointOpen(true)
+  }, [binding, iecDebugMetadata, selectedInstance])
+
+  const submitAdvancedBreakpoint = useCallback(() => {
+    if (!binding || !iecDebugMetadata) return
+    const statement = iecDebugMetadata.statements.find((candidate) => candidate.id === binding.breakpoint_statement_id)
+    if (!statement) {
+      toast({ title: 'Breakpoint Error', description: 'The mapped IEC statement is unavailable.', variant: 'fail' })
+      return
+    }
+    try {
+      const breakpoint = buildIecDebugBreakpoint(
+        { metadata: iecDebugMetadata, statement, currentInstance: selectedInstance },
+        advancedBreakpointSpecification,
+      )
+      void window.bridge.debuggerSetIecBreakpointEx(breakpoint, true).then((result) => {
+        if (!result.success) {
+          toast({ title: 'Breakpoint Error', description: result.error, variant: 'fail' })
+          return
+        }
+        const next = new Set(iecDebugBreakpoints)
+        next.add(statement.id)
+        setIecDebugBreakpoints(next)
+        closeAdvancedBreakpoint()
+      })
+    } catch (error) {
+      toast({
+        title: 'Breakpoint Error',
+        description: error instanceof Error ? error.message : String(error),
+        variant: 'fail',
+      })
+    }
+  }, [
+    advancedBreakpointSpecification,
+    binding,
+    closeAdvancedBreakpoint,
+    iecDebugBreakpoints,
+    iecDebugMetadata,
+    selectedInstance,
+    setIecDebugBreakpoints,
+  ])
+
   useEffect(() => {
     if (!isGraphicalSession) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'F9') {
         event.preventDefault()
         if (event.shiftKey) {
-          toast({
-            title: 'Advanced graphical breakpoint',
-            description:
-              'Advanced graphical breakpoint editing is not included in this checkpoint yet. Use F9 for a normal breakpoint.',
-          })
+          openAdvancedBreakpoint()
           return
         }
         toggleBreakpoint()
@@ -113,9 +187,31 @@ const useGraphicalIecDebugControls = (selection?: GraphicalDebugSelection) => {
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [iecDebugCallStack.length, iecDebugCapabilities, isGraphicalSession, isHalted, resume, toggleBreakpoint])
+  }, [
+    iecDebugCallStack.length,
+    iecDebugCapabilities,
+    isGraphicalSession,
+    isHalted,
+    openAdvancedBreakpoint,
+    resume,
+    toggleBreakpoint,
+  ])
 
-  return { binding, hasBreakpoint, isGraphicalSession, isHalted, resume, toggleBreakpoint }
+  return {
+    binding,
+    hasBreakpoint,
+    isGraphicalSession,
+    isHalted,
+    resume,
+    toggleBreakpoint,
+    advancedBreakpointOpen,
+    advancedBreakpointSpecification,
+    selectedInstance,
+    setAdvancedBreakpointSpecification,
+    openAdvancedBreakpoint,
+    closeAdvancedBreakpoint,
+    submitAdvancedBreakpoint,
+  }
 }
 
 export { useGraphicalIecBreakpoint, useGraphicalIecDebugControls }

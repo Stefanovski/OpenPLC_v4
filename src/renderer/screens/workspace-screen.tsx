@@ -36,6 +36,7 @@ import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templ
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
 import { collectGraphicalDebugWatchKeys } from '../utils/graphical-debug'
+import { buildFbDebugInstanceMap } from '../utils/iec-debug'
 import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../utils/variable-sizes'
 
 const DEBUGGER_POLL_INTERVAL_MS = 50
@@ -210,6 +211,16 @@ const WorkspaceScreen = () => {
               const debugPou = state.workspace.iecDebugMetadata?.pous.find(
                 (candidate) => candidate.id === confirmed.data?.currentPouId,
               )
+              const debugInstance = state.workspace.iecDebugMetadata?.instances.find(
+                (candidate) => candidate.id === confirmed.data?.currentInstanceId,
+              )
+              if (debugPou && debugInstance?.pou_id === debugPou.id && debugInstance.kind === 'function-block') {
+                const typeKey = debugPou.name.toUpperCase()
+                const instance = (state.workspace.fbDebugInstances.get(typeKey) ?? []).find(
+                  (candidate) => candidate.instanceId === debugInstance.id || candidate.path === debugInstance.path,
+                )
+                if (instance) state.workspaceActions.setFbSelectedInstance(typeKey, instance.key)
+              }
               const projectPou = state.project.data.pous.find(
                 (candidate) => candidate.data.name.toUpperCase() === debugPou?.name.toUpperCase(),
               )
@@ -256,6 +267,17 @@ const WorkspaceScreen = () => {
       }
 
       workspaceActions.setIecDebugMetadata(metadata.data)
+      const metadataInstancesByType = buildFbDebugInstanceMap(metadata.data)
+      if (metadataInstancesByType.size > 0) {
+        workspaceActions.setFbDebugInstances(metadataInstancesByType)
+        const selectedInstances = useOpenPLCStore.getState().workspace.fbSelectedInstance
+        metadataInstancesByType.forEach((instances, typeKey) => {
+          const selectedKey = selectedInstances.get(typeKey)
+          if (!instances.some((instance) => instance.key === selectedKey)) {
+            workspaceActions.setFbSelectedInstance(typeKey, instances[0].key)
+          }
+        })
+      }
       await pollStatus()
       pollingInterval = setInterval(() => void pollStatus(), IEC_DEBUGGER_POLL_INTERVAL_MS)
     }
@@ -1505,6 +1527,10 @@ const WorkspaceScreen = () => {
             currentPou.data.body.language === 'ld'
               ? ladderFlows.find((flow) => flow.name === editor.meta.name)?.rungs.flatMap((rung) => rung.nodes) ?? []
               : fbdFlows.find((flow) => flow.name === editor.meta.name)?.rung.nodes ?? []
+          const graphEdges =
+            currentPou.data.body.language === 'ld'
+              ? ladderFlows.find((flow) => flow.name === editor.meta.name)?.rungs.flatMap((rung) => rung.edges) ?? []
+              : fbdFlows.find((flow) => flow.name === editor.meta.name)?.rung.edges ?? []
           const availableKeys = new Set<string>()
           variableInfoMapRef.current.forEach((varInfos) => {
             for (const varInfo of varInfos) availableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
@@ -1512,6 +1538,7 @@ const WorkspaceScreen = () => {
 
           const graphicalWatchKeys = collectGraphicalDebugWatchKeys({
             nodes: graphNodes,
+            edges: graphEdges,
             makeCompositeKey: makeCompositeKeyForCurrentPou,
             availableKeys,
           })

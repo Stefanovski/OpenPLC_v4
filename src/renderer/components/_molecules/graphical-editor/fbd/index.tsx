@@ -10,10 +10,13 @@ import { openPLCStoreBase, useOpenPLCStore } from '@root/renderer/store'
 import { FBDRungState } from '@root/renderer/store/slices'
 import { getFunctionBlockVariablesToCleanup } from '@root/renderer/store/slices/ladder/utils'
 import {
+  applyGraphicalBooleanNegation,
   getGraphicalDebugSample,
+  getGraphicalDebugSourcesForStatement,
   getGraphicalIecDebugNodeState,
   type GraphicalDebugSample,
   parseGraphicalDebugBoolean,
+  resolveFbdEdgeSamples,
 } from '@root/renderer/utils/graphical-debug'
 import { cn } from '@root/utils'
 import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-id'
@@ -47,9 +50,10 @@ interface FBDProps {
   rung: FBDRungState
   nodeDivergences?: string[]
   isDebuggerActive?: boolean
+  selectedInstanceId?: number
 }
 
-export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }: FBDProps) => {
+export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false, selectedInstanceId }: FBDProps) => {
   const {
     editor,
     editorActions: { updateModelVariables, saveEditorViewState },
@@ -87,16 +91,17 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
 
   useEffect(() => {
     if (!reactFlowInstance || iecDebugStatus?.state !== 1) return
-    const currentBinding = iecDebugMetadata?.graphical_bindings?.find(
-      (binding) =>
-        binding.language === 'fbd' &&
-        binding.pou_id === iecDebugStatus.currentPouId &&
-        binding.statement_ids.includes(iecDebugStatus.currentStatementId),
-    )
+    if (selectedInstanceId !== undefined && iecDebugStatus.currentInstanceId !== selectedInstanceId) return
+    const currentBinding = getGraphicalDebugSourcesForStatement(
+      iecDebugMetadata,
+      iecDebugStatus.currentPouId,
+      iecDebugStatus.currentStatementId,
+    ).primary
+    if (currentBinding?.language !== 'fbd') return
     if (!currentBinding) return
     const currentNode = reactFlowInstance.getNode(currentBinding.node_id)
     if (currentNode) void reactFlowInstance.fitView({ nodes: [currentNode], duration: 180, padding: 0.45 })
-  }, [iecDebugMetadata, iecDebugStatus?.haltCount, reactFlowInstance])
+  }, [iecDebugMetadata, iecDebugStatus, reactFlowInstance, selectedInstanceId])
 
   useFBDClipboard({
     mousePosition,
@@ -115,7 +120,7 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
     if (!node) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
     if (node.type === 'input-variable' || node.type === 'output-variable' || node.type === 'inout-variable') {
-      const variableData = node.data as { variable?: { name: string } }
+      const variableData = node.data as { variable?: { name: string }; negated?: boolean }
       const variableName = variableData.variable?.name
       if (!variableName) return UNAVAILABLE_GRAPHICAL_SAMPLE
 
@@ -126,13 +131,19 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
       const compositeKey = getCompositeKey(variableName)
 
       if (variable.type.value.toUpperCase() === 'BOOL' && debugForcedVariables.has(compositeKey)) {
-        return {
-          value: debugForcedVariables.get(compositeKey) ? 'TRUE' : 'FALSE',
-          quality: 'sampled',
-        }
+        return applyGraphicalBooleanNegation(
+          {
+            value: debugForcedVariables.get(compositeKey) ? 'TRUE' : 'FALSE',
+            quality: 'sampled',
+          },
+          variableData.negated,
+        )
       }
 
-      return getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey)
+      return applyGraphicalBooleanNegation(
+        getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey),
+        variableData.negated,
+      )
     }
 
     if (node.type === 'block') {
@@ -181,69 +192,30 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
       return rungLocal.edges
     }
 
-    const edgeSampleMap = new Map<string, GraphicalDebugSample>()
-
-    const isPassThroughNode = (node: (typeof rungLocal.nodes)[number]): boolean => {
-      return node.type === 'connector' || node.type === 'continuation'
-    }
-
-    const determineEdgeSample = (edgeId: string, visited: Set<string> = new Set()): GraphicalDebugSample => {
-      if (edgeSampleMap.has(edgeId)) {
-        return edgeSampleMap.get(edgeId)!
-      }
-
-      if (visited.has(edgeId)) {
-        return UNAVAILABLE_GRAPHICAL_SAMPLE
-      }
-      visited.add(edgeId)
-
-      const edge = rungLocal.edges.find((e) => e.id === edgeId)
-      if (!edge) {
-        visited.delete(edgeId)
-        return UNAVAILABLE_GRAPHICAL_SAMPLE
-      }
-
-      const sourceNode = rungLocal.nodes.find((n) => n.id === edge.source)
-      if (!sourceNode) {
-        visited.delete(edgeId)
-        return UNAVAILABLE_GRAPHICAL_SAMPLE
-      }
-
-      const incomingEdges = rungLocal.edges.filter((e) => e.target === edge.source)
-      const incomingSample = incomingEdges
-        .map((incomingEdge) => determineEdgeSample(incomingEdge.id, visited))
-        .find((sample) => sample.quality !== 'unavailable')
-      const sample = isPassThroughNode(sourceNode)
-        ? incomingSample ?? UNAVAILABLE_GRAPHICAL_SAMPLE
-        : getNodeOutputSample(edge.source, edge.sourceHandle)
-
-      edgeSampleMap.set(edgeId, sample)
-      visited.delete(edgeId)
-      return sample
-    }
-
-    rungLocal.edges.forEach((edge) => {
-      determineEdgeSample(edge.id, new Set())
-    })
+    const edgeSampleMap = resolveFbdEdgeSamples(rungLocal.nodes, rungLocal.edges, getNodeOutputSample)
 
     return rungLocal.edges.map((edge) => {
       const sample = edgeSampleMap.get(edge.id) ?? UNAVAILABLE_GRAPHICAL_SAMPLE
-      if (sample.quality === 'unavailable') return edge
 
       const booleanValue = parseGraphicalDebugBoolean(sample)
       const stroke =
-        sample.quality === 'stale'
+        sample.quality === 'unavailable' || sample.quality === 'type-error' || sample.quality === 'build-mismatch'
           ? EDGE_COLOR_STALE
-          : booleanValue === true
-            ? EDGE_COLOR_TRUE
-            : booleanValue === false
-              ? EDGE_COLOR_FALSE
-              : EDGE_COLOR_VALUE
+          : sample.quality === 'stale'
+            ? EDGE_COLOR_STALE
+            : booleanValue === true
+              ? EDGE_COLOR_TRUE
+              : booleanValue === false
+                ? EDGE_COLOR_FALSE
+                : EDGE_COLOR_VALUE
 
       return {
         ...edge,
+        data: { ...edge.data, debugQuality: sample.quality },
         label:
-          sample.value === undefined ? undefined : `${sample.value}${sample.quality === 'stale' ? ' (stale)' : ''}`,
+          sample.value === undefined
+            ? sample.quality
+            : `${sample.value}${sample.quality === 'sampled' ? '' : ` (${sample.quality})`}`,
         labelStyle: { fill: stroke, fontSize: 10, fontWeight: 600 },
         labelBgStyle: { fill: '#111827', fillOpacity: 0.92 },
         labelBgPadding: [4, 2] as [number, number],
@@ -252,7 +224,9 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
           ...edge.style,
           stroke,
           strokeWidth: 2,
-          strokeDasharray: sample.quality === 'stale' ? '5 4' : undefined,
+          strokeDasharray: ['stale', 'unavailable', 'type-error', 'build-mismatch'].includes(sample.quality)
+            ? '5 4'
+            : undefined,
         },
       }
     })
@@ -277,12 +251,15 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
           iecDebugBreakpoints,
           editor.meta.name,
           node.id,
+          undefined,
+          selectedInstanceId,
         )
         return {
           ...node,
           className: cn(node.className, {
             'iec-graphical-debug-mapped': debugState.binding,
             'iec-graphical-debug-current': debugState.isCurrent,
+            'iec-graphical-debug-related': debugState.isSecondaryCurrent,
             'iec-graphical-debug-breakpoint': debugState.hasBreakpoint,
           }),
           draggable: false,
@@ -293,7 +270,15 @@ export const FBDBody = ({ rung, nodeDivergences = [], isDebuggerActive = false }
     }
 
     return rungLocal.nodes
-  }, [editor.meta.name, iecDebugBreakpoints, iecDebugMetadata, iecDebugStatus, isDebuggerActive, rungLocal.nodes])
+  }, [
+    editor.meta.name,
+    iecDebugBreakpoints,
+    iecDebugMetadata,
+    iecDebugStatus,
+    isDebuggerActive,
+    rungLocal.nodes,
+    selectedInstanceId,
+  ])
 
   const nodeTypes = useMemo(() => customNodeTypes, [])
   const canZoom = useMemo(() => {
