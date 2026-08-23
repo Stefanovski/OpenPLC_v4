@@ -7,6 +7,7 @@ import {
   RisingEdgeContact,
 } from '@root/renderer/assets/icons/flow/Contact'
 import { useOpenPLCStore } from '@root/renderer/store'
+import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
 import { cn, generateNumericUUID } from '@root/utils'
 import type { Node, NodeProps } from '@xyflow/react'
 import { Position } from '@xyflow/react'
@@ -94,7 +95,13 @@ export const Contact = (block: ContactProps) => {
     },
     ladderFlows,
     ladderFlowActions: { updateNode },
-    workspace: { isDebuggerVisible, debugVariableValues, debugVariableIndexes, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugVariableIndexes,
+      debugForcedVariables,
+    },
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
@@ -112,17 +119,10 @@ export const Contact = (block: ContactProps) => {
     const isForced = debugForcedVariables.has(compositeKey)
 
     // When forced, use immediate value from debugForcedVariables (no 200ms poll delay)
-    const value = isForced
+    const isTrue = isForced
       ? debugForcedVariables.get(compositeKey)
-        ? '1'
-        : '0'
-      : debugVariableValues.get(compositeKey)
-
-    if (value === undefined) {
-      return undefined
-    }
-
-    const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
+      : parseGraphicalDebugBoolean(getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey))
+    if (isTrue === undefined) return undefined
     const displayState = data.variant === 'negated' ? !isTrue : isTrue
 
     if (isForced) {

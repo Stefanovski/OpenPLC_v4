@@ -21,6 +21,7 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
     debuggerTargetIp: null,
     debugVariableIndexes: new Map(),
     debugVariableValues: new Map(),
+    debugVariableUpdatedAt: new Map(),
     debugForcedVariables: new Map(),
     debugVariableTree: new Map(),
     debugExpandedNodes: new Map(),
@@ -157,6 +158,7 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
             workspace.iecDebugCapabilities = 0
             workspace.iecDebugCallStack = []
             workspace.iecDebugBreakpoints = new Set()
+            workspace.debugVariableUpdatedAt = new Map()
           }
         }),
       )
@@ -179,6 +181,13 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
       setState(
         produce(({ workspace }: WorkspaceSlice) => {
           workspace.debugVariableValues = values
+        }),
+      )
+    },
+    setDebugVariableUpdatedAt: (timestamps: Map<string, number>): void => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugVariableUpdatedAt = timestamps
         }),
       )
     },
@@ -273,6 +282,7 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
         produce(({ workspace }: WorkspaceSlice) => {
           workspace.debugVariableIndexes.delete(compositeKey)
           workspace.debugVariableValues.delete(compositeKey)
+          workspace.debugVariableUpdatedAt.delete(compositeKey)
           workspace.debugForcedVariables.delete(compositeKey)
           workspace.debugVariableTree.delete(compositeKey)
           workspace.debugExpandedNodes.delete(compositeKey)

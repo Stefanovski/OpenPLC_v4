@@ -15,6 +15,7 @@ import {
 import { restrictToParentElement } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import * as Portal from '@radix-ui/react-portal'
+import { GraphicalDebugStatus } from '@root/renderer/components/_atoms/graphical-editor/graphical-debug-status'
 import { BlockNode, BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/ladder/block'
 import { CoilNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/coil'
 import { ContactNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/contact'
@@ -302,7 +303,8 @@ export default function LadderEditor() {
   }
 
   return (
-    <div className='h-full w-full overflow-y-auto' ref={scrollableRef} style={{ scrollbarGutter: 'stable' }}>
+    <div className='relative h-full w-full overflow-y-auto' ref={scrollableRef} style={{ scrollbarGutter: 'stable' }}>
+      {isDebuggerVisible && <GraphicalDebugStatus />}
       <div className='flex flex-1 flex-col gap-4 px-2'>
         <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
           <div

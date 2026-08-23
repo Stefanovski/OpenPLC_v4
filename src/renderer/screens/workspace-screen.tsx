@@ -35,12 +35,14 @@ import { WorkspaceActivityBar } from '../components/_organisms/workspace-activit
 import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templates'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
+import { collectGraphicalDebugWatchKeys } from '../utils/graphical-debug'
 import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../utils/variable-sizes'
 
 const DEBUGGER_POLL_INTERVAL_MS = 50
 const IEC_DEBUGGER_POLL_INTERVAL_MS = 100
 const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
+const ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN = false
 
 const WorkspaceScreen = () => {
   const {
@@ -1187,6 +1189,12 @@ const WorkspaceScreen = () => {
           }
         })
 
+        // Preserve user watches, plots and expanded debugger-tree values. The legacy graphical scan below is kept
+        // temporarily for compatibility while the active graph is resolved, but its broad additions are replaced
+        // by the dependency planner before the request is sent.
+        const explicitDebugVariableKeys = new Set(debugVariableKeys)
+        const graphicalDebugVariableKeys = new Set<string>()
+
         const { editor, ladderFlows } = useOpenPLCStore.getState()
         const currentPou = currentProject.data.pous.find((pou) => pou.data.name === editor.meta.name)
 
@@ -1205,7 +1213,7 @@ const WorkspaceScreen = () => {
           return `${currentPou.data.name}:${variableName}`
         }
 
-        if (currentPou && currentPou.data.body.language === 'ld') {
+        if (ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN && currentPou && currentPou.data.body.language === 'ld') {
           const currentLadderFlow = ladderFlows.find((flow) => flow.name === editor.meta.name)
           if (currentLadderFlow) {
             currentLadderFlow.rungs.forEach((rung) => {
@@ -1348,7 +1356,7 @@ const WorkspaceScreen = () => {
         }
 
         const { fbdFlows } = useOpenPLCStore.getState()
-        if (currentPou && currentPou.data.body.language === 'fbd') {
+        if (ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN && currentPou && currentPou.data.body.language === 'fbd') {
           const currentFbdFlow = fbdFlows.find((flow) => flow.name === editor.meta.name)
           if (currentFbdFlow) {
             currentFbdFlow.rung.nodes.forEach((node) => {
@@ -1485,37 +1493,29 @@ const WorkspaceScreen = () => {
           }
         }
 
-        // Graphical editors display live badges for every base-type variable of the active POU.
-        if (currentPou) {
-          if (currentPou.type === 'function-block') {
-            const fbTypeKey = currentPou.data.name.toUpperCase()
-            const selectedKey = fbSelectedInstance.get(fbTypeKey)
-            const instances = fbDebugInstances.get(fbTypeKey) || []
-            const selectedInstance = instances.find((instance) => instance.key === selectedKey)
+        // The PC owns the graphical topology. Only request IEC values that are actually visible in the
+        // active LD/FBD graph; no graph IDs or power-flow state are sent to the target firmware.
+        if (currentPou && (currentPou.data.body.language === 'ld' || currentPou.data.body.language === 'fbd')) {
+          const graphNodes =
+            currentPou.data.body.language === 'ld'
+              ? ladderFlows.find((flow) => flow.name === editor.meta.name)?.rungs.flatMap((rung) => rung.nodes) ?? []
+              : fbdFlows.find((flow) => flow.name === editor.meta.name)?.rung.nodes ?? []
+          const availableKeys = new Set<string>()
+          variableInfoMapRef.current.forEach((varInfos) => {
+            for (const varInfo of varInfos) availableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
+          })
 
-            if (selectedInstance) {
-              const instancePrefix = `${selectedInstance.fbVariableName}.`
-              variableInfoMapRef.current.forEach((varInfos) => {
-                for (const varInfo of varInfos) {
-                  if (
-                    varInfo.pouName === selectedInstance.programName &&
-                    varInfo.variable.name.startsWith(instancePrefix)
-                  ) {
-                    debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
-                  }
-                }
-              })
-            }
-          } else {
-            variableInfoMapRef.current.forEach((varInfos) => {
-              for (const varInfo of varInfos) {
-                if (varInfo.pouName === currentPou.data.name) {
-                  debugVariableKeys.add(`${varInfo.pouName}:${varInfo.variable.name}`)
-                }
-              }
-            })
-          }
+          const graphicalWatchKeys = collectGraphicalDebugWatchKeys({
+            nodes: graphNodes,
+            makeCompositeKey: makeCompositeKeyForCurrentPou,
+            availableKeys,
+          })
+          graphicalWatchKeys.forEach((compositeKey) => graphicalDebugVariableKeys.add(compositeKey))
         }
+
+        debugVariableKeys.clear()
+        explicitDebugVariableKeys.forEach((compositeKey) => debugVariableKeys.add(compositeKey))
+        graphicalDebugVariableKeys.forEach((compositeKey) => debugVariableKeys.add(compositeKey))
 
         // A force operation must keep polling the affected value even if it is not otherwise watched.
         const {
@@ -1541,6 +1541,7 @@ const WorkspaceScreen = () => {
         // Values from previous batches persist because newValues starts as a copy of the current store
         const { workspace: currentWorkspace } = useOpenPLCStore.getState()
         const newValues = new Map<string, string>()
+        const newUpdatedAt = new Map(currentWorkspace.debugVariableUpdatedAt)
         currentWorkspace.debugVariableValues.forEach((value: string, key: string) => {
           newValues.set(key, value)
         })
@@ -1584,6 +1585,7 @@ const WorkspaceScreen = () => {
 
             const requestById = new Map(stableBatch.map((variable) => [variable.id, variable]))
             const nextForcedVariables = new Map(currentWorkspace.debugForcedVariables)
+            const sampledAt = Date.now()
             for (const valueResult of stableResult.data) {
               const request = requestById.get(valueResult.id)
               const varInfos = request ? variableInfoMapRef.current?.get(request.legacyIndex) : undefined
@@ -1595,6 +1597,7 @@ const WorkspaceScreen = () => {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, value)
+                newUpdatedAt.set(compositeKey, sampledAt)
                 if (valueResult.forced) {
                   if (!nextForcedVariables.has(compositeKey)) nextForcedVariables.set(compositeKey, true)
                 } else {
@@ -1606,6 +1609,7 @@ const WorkspaceScreen = () => {
             batchOffsetRef.current = (stableOffset + stableResult.data.length) % allIndexes.length
             if (isMountedRef.current) {
               workspaceActions.setDebugVariableValues(newValues)
+              workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
               workspaceActions.setDebugForcedVariables(nextForcedVariables)
             }
             return
@@ -1661,6 +1665,7 @@ const WorkspaceScreen = () => {
         if (result.data && result.lastIndex !== undefined && Array.isArray(result.data)) {
           const responseBuffer = new Uint8Array(result.data)
           let bufferOffset = 0
+          const sampledAt = Date.now()
 
           for (const index of batch) {
             const varInfos = variableInfoMapRef.current?.get(index)
@@ -1682,12 +1687,14 @@ const WorkspaceScreen = () => {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, value)
+                newUpdatedAt.set(compositeKey, sampledAt)
               }
               bufferOffset += bytesRead
             } catch {
               for (const varInfo of varInfos) {
                 const compositeKey = `${varInfo.pouName}:${varInfo.variable.name}`
                 newValues.set(compositeKey, 'ERR')
+                newUpdatedAt.set(compositeKey, sampledAt)
               }
               bufferOffset += getVariableSize(variable)
             }
@@ -1707,6 +1714,7 @@ const WorkspaceScreen = () => {
 
         if (isMountedRef.current) {
           workspaceActions.setDebugVariableValues(newValues)
+          workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
         }
       } catch (error: unknown) {
         const { consoleActions } = useOpenPLCStore.getState()

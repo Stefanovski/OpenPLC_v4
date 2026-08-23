@@ -1,6 +1,7 @@
 import { useDebugCompositeKey } from '@hooks/use-debug-composite-key'
 import * as Popover from '@radix-ui/react-popover'
 import { useOpenPLCStore } from '@root/renderer/store'
+import { getGraphicalDebugSample, parseGraphicalDebugBoolean } from '@root/renderer/utils/graphical-debug'
 import { PLCVariable } from '@root/types/PLC'
 import { cn, generateNumericUUID } from '@root/utils'
 import { resolveArrayVariableByName } from '@root/utils/PLC/array-variable-utils'
@@ -61,7 +62,13 @@ const VariableElement = (block: VariableProps) => {
     project: {
       data: { pous, dataTypes },
     },
-    workspace: { isDebuggerVisible, debugVariableIndexes, debugVariableValues, debugForcedVariables },
+    workspace: {
+      isDebuggerVisible,
+      debugVariableIndexes,
+      debugVariableValues,
+      debugVariableUpdatedAt,
+      debugForcedVariables,
+    },
     workspaceActions: { setDebugForcedVariables },
   } = useOpenPLCStore()
   const getCompositeKey = useDebugCompositeKey()
@@ -375,12 +382,10 @@ const VariableElement = (block: VariableProps) => {
       return undefined
     }
 
-    const value = debugVariableValues.get(compositeKey)
-    if (value === undefined) {
-      return undefined
-    }
-
-    const isTrue = value === '1' || value.toUpperCase() === 'TRUE'
+    const isTrue = parseGraphicalDebugBoolean(
+      getGraphicalDebugSample(debugVariableValues, debugVariableUpdatedAt, compositeKey),
+    )
+    if (isTrue === undefined) return undefined
     return isTrue ? '#00FF00' : '#0464FB'
   }
 
