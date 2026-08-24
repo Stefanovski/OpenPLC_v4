@@ -1,5 +1,7 @@
+import type { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
+import { getBlockDocumentation } from '@root/renderer/components/_atoms/graphical-editor/utils'
 import { useOpenPLCStore } from '@root/renderer/store'
-import { LegacyRef, ReactElement, useState } from 'react'
+import { LegacyRef, ReactElement, useMemo, useState } from 'react'
 import { ImperativePanelHandle } from 'react-resizable-panels'
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '../panel'
@@ -52,10 +54,26 @@ const Explorer = ({ collapse }: ExplorerProps): ReactElement => {
       : library.pous.some((pou) => pou.name.toLowerCase().includes(filterText)),
   )
 
-  const selectedPouDocumentation =
-    system
-      .flatMap((library: { pous: { name: string; documentation?: string }[] }) => library.pous)
-      .find((pou) => pou.name === selectedFileKey)?.documentation || null
+  const selectedPouDocumentation = useMemo<string | null>(() => {
+    if (!selectedFileKey) return null
+
+    const systemPou = system
+      .flatMap((library) => library.pous as unknown as BlockVariant[])
+      .find((pou) => pou.name === selectedFileKey)
+    if (systemPou) {
+      return getBlockDocumentation(systemPou)
+    }
+
+    const projectPou = pous.find((pou) => pou.data.name === selectedFileKey)
+    if (projectPou) {
+      return getBlockDocumentation({
+        documentation: projectPou.data.documentation,
+        variables: projectPou.data.variables,
+      } as unknown as BlockVariant)
+    }
+
+    return null
+  }, [selectedFileKey, system, pous])
 
   return (
     <ResizablePanel
