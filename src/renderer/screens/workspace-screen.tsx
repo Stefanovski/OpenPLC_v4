@@ -267,7 +267,7 @@ const WorkspaceScreen = () => {
       }
 
       workspaceActions.setIecDebugMetadata(metadata.data)
-      const metadataInstancesByType = buildFbDebugInstanceMap(metadata.data)
+      const metadataInstancesByType = buildFbDebugInstanceMap(metadata.data, useOpenPLCStore.getState().project.data)
       if (metadataInstancesByType.size > 0) {
         workspaceActions.setFbDebugInstances(metadataInstancesByType)
         const selectedInstances = useOpenPLCStore.getState().workspace.fbSelectedInstance

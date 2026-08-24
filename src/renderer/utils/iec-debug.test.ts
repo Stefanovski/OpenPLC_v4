@@ -1,9 +1,11 @@
 import type { IecDebugMetadata, IecDebugVariable } from '@root/types/PLC/iec-debug'
+import type { PLCProjectData } from '@root/types/PLC/open-plc'
 
 import {
   buildFbDebugInstanceMap,
   buildIecDebugBreakpoint,
   encodeIecDebugLiteral,
+  findIecDebugVariableByIdentifier,
   formatIecDebugValue,
   iecDebugValueSize,
   resolveIecDebugInstance,
@@ -56,6 +58,21 @@ const metadata: IecDebugMetadata = {
 }
 
 describe('IEC debugger utilities', () => {
+  it('resolves an unambiguous halted local for Monaco hover values', () => {
+    const counter = variable(6)
+    const output = { ...variable(1, 'BOOL'), id: 12, name: 'Output', path: 'MAIN.PUMP1.Output' }
+    expect(findIecDebugVariableByIdentifier([counter, output], 'counter')).toBe(counter)
+    expect(findIecDebugVariableByIdentifier([counter, output], 'OUTPUT')).toBe(output)
+    expect(findIecDebugVariableByIdentifier([counter, output], '')).toBeUndefined()
+    expect(findIecDebugVariableByIdentifier([counter, output], 'Missing')).toBeUndefined()
+  })
+
+  it('does not guess between ambiguous aggregate members in Monaco hovers', () => {
+    const first = { ...variable(6), id: 12, name: 'Values[0]', path: 'MAIN.PUMP1.Values[0]' }
+    const second = { ...variable(6), id: 13, name: 'Values[0]', path: 'MAIN.PUMP1.Values[0]' }
+    expect(findIecDebugVariableByIdentifier([first, second], 'Values[0]')).toBeUndefined()
+  })
+
   it('reports target value sizes and formats primitive values', () => {
     expect(iecDebugValueSize(1)).toBe(1)
     expect(iecDebugValueSize(4)).toBe(2)
@@ -161,6 +178,60 @@ describe('IEC debugger utilities', () => {
         ],
       }).get('FB_COUNTER'),
     ).toEqual([expect.objectContaining({ instanceId: 7 })])
+  })
+
+  it('preserves editor spelling for deeply nested FB instance composite keys', () => {
+    const project = {
+      pous: [
+        {
+          type: 'program',
+          data: {
+            name: 'io_stress',
+            variables: [{ name: 'Controller', type: { definition: 'derived', value: 'FB_MIXED_ORCHESTRATOR' } }],
+          },
+        },
+        {
+          type: 'function-block',
+          data: {
+            name: 'FB_MIXED_ORCHESTRATOR',
+            variables: [{ name: 'LdOscillator', type: { definition: 'derived', value: 'FB_LD_OSCILLATOR' } }],
+          },
+        },
+        {
+          type: 'function-block',
+          data: { name: 'FB_LD_OSCILLATOR', variables: [] },
+        },
+      ],
+      configuration: {
+        resource: { instances: [{ name: 'stress_instance', program: 'io_stress' }] },
+      },
+    } as unknown as PLCProjectData
+    const ldPou = { id: 22, key: 'ld-pou', name: 'FB_LD_OSCILLATOR', kind: 'function-block' as const }
+    const nestedMetadata: IecDebugMetadata = {
+      ...metadata,
+      pous: [...metadata.pous, ldPou],
+      instances: [
+        {
+          ...metadata.instances[0],
+          id: 23,
+          key: 'ld-instance',
+          name: 'LDOSCILLATOR',
+          path: 'IO_STRESS.CONTROLLER.LDOSCILLATOR',
+          source_path: 'CONFIG0.RES0.STRESS_INSTANCE.CONTROLLER.LDOSCILLATOR',
+          pou_id: ldPou.id,
+        },
+      ],
+    }
+
+    expect(buildFbDebugInstanceMap(nestedMetadata, project).get('FB_LD_OSCILLATOR')).toEqual([
+      expect.objectContaining({
+        key: 'io_stress:Controller.LdOscillator',
+        programName: 'io_stress',
+        programInstanceName: 'stress_instance',
+        fbVariableName: 'Controller.LdOscillator',
+        path: 'IO_STRESS.CONTROLLER.LDOSCILLATOR',
+      }),
+    ])
   })
 
   it('rejects ambiguous or invalid advanced breakpoint specifications', () => {

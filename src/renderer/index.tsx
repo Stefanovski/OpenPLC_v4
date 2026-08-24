@@ -3,6 +3,9 @@ import '@utils/i18n'
 import { createRoot } from 'react-dom/client'
 
 import App from './App'
+import { installMonacoCancellationGuard } from './utils/monaco-cancellation'
+
+installMonacoCancellationGuard()
 
 /**
  * Retrieves the root element with the id 'root' from the document.

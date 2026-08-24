@@ -6,6 +6,7 @@ import type {
   IecDebugStatement,
   IecDebugVariable,
 } from '@root/types/PLC/iec-debug'
+import type { PLCPou, PLCProjectData } from '@root/types/PLC/open-plc'
 
 const iecDebugValueSize = (type: number): number => {
   if ([1, 2, 3, 17].includes(type)) return 1
@@ -31,6 +32,24 @@ const formatIecDebugValue = (variable: IecDebugVariable, bytes: number[]): strin
   if (variable.type_code === 10) return view.getFloat32(0, true).toString()
   if (variable.type_code === 11) return view.getFloat64(0, true).toString()
   return `0x${bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+const findIecDebugVariableByIdentifier = (
+  variables: IecDebugVariable[],
+  identifier: string,
+): IecDebugVariable | undefined => {
+  const normalizedIdentifier = identifier.trim().toUpperCase()
+  if (!normalizedIdentifier) return undefined
+
+  const matches = variables.filter((variable) => {
+    const pathSegments = variable.path.split('.')
+    const nameSegments = variable.name.split('.')
+    const localPath = pathSegments[pathSegments.length - 1] ?? ''
+    const localName = nameSegments[nameSegments.length - 1] ?? ''
+    return [localPath, localName].some((candidate) => candidate.toUpperCase() === normalizedIdentifier)
+  })
+
+  return matches.length === 1 ? matches[0] : undefined
 }
 
 const encodeIecDebugLiteral = (variable: IecDebugVariable, literal: string): number[] | null => {
@@ -120,7 +139,45 @@ const resolveIecDebugInstance = (
   )
 }
 
-const buildFbDebugInstanceMap = (metadata: IecDebugMetadata): Map<string, FbInstanceInfo[]> => {
+const resolveEditorInstancePath = (
+  runtimePath: string,
+  project?: PLCProjectData,
+): { programName: string; fbVariableName: string; programInstanceName?: string } => {
+  const pathSegments = runtimePath.split('.').filter(Boolean)
+  const runtimeProgramName = pathSegments[0] ?? ''
+  const programPou = project?.pous.find(
+    (pou) => pou.type === 'program' && pou.data.name.toUpperCase() === runtimeProgramName.toUpperCase(),
+  )
+  const programName = programPou?.data.name ?? runtimeProgramName
+  const resolvedVariableSegments: string[] = []
+  let currentPou: PLCPou | undefined = programPou
+
+  for (const runtimeSegment of pathSegments.slice(1)) {
+    const variable = currentPou?.data.variables.find(
+      (candidate) => candidate.name.toUpperCase() === runtimeSegment.toUpperCase(),
+    )
+    resolvedVariableSegments.push(variable?.name ?? runtimeSegment)
+    if (!variable || !project) {
+      currentPou = undefined
+      continue
+    }
+    currentPou = project.pous.find(
+      (candidate) =>
+        candidate.type === 'function-block' && candidate.data.name.toUpperCase() === variable.type.value.toUpperCase(),
+    )
+  }
+
+  const programInstanceName = project?.configuration.resource.instances.find(
+    (instance) => instance.program.toUpperCase() === programName.toUpperCase(),
+  )?.name
+
+  return { programName, fbVariableName: resolvedVariableSegments.join('.'), programInstanceName }
+}
+
+const buildFbDebugInstanceMap = (
+  metadata: IecDebugMetadata,
+  project?: PLCProjectData,
+): Map<string, FbInstanceInfo[]> => {
   const byPouType = new Map<string, FbInstanceInfo[]>()
   const pousById = new Map(metadata.pous.map((pou) => [pou.id, pou]))
   for (const instance of metadata.instances) {
@@ -129,14 +186,15 @@ const buildFbDebugInstanceMap = (metadata: IecDebugMetadata): Map<string, FbInst
     if (!instancePou) continue
     const pathSegments = instance.path.split('.').filter(Boolean)
     if (pathSegments.length < 2) continue
-    const programName = pathSegments[0]
-    const fbVariableName = pathSegments.slice(1).join('.')
+    const resolvedPath = resolveEditorInstancePath(instance.path, project)
+    const programName = resolvedPath.programName
+    const fbVariableName = resolvedPath.fbVariableName
     const typeKey = instancePou.name.toUpperCase()
     const instances = byPouType.get(typeKey) ?? []
     instances.push({
       fbTypeName: instancePou.name,
       programName,
-      programInstanceName: instance.source_path.split('.')[0] || programName,
+      programInstanceName: (resolvedPath.programInstanceName ?? instance.source_path.split('.')[0]) || programName,
       fbVariableName,
       key: `${programName}:${fbVariableName}`,
       path: instance.path,
@@ -230,6 +288,7 @@ export {
   buildFbDebugInstanceMap,
   buildIecDebugBreakpoint,
   encodeIecDebugLiteral,
+  findIecDebugVariableByIdentifier,
   formatIecDebugValue,
   iecDebugValueSize,
   resolveIecDebugInstance,

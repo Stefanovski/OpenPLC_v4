@@ -3,7 +3,12 @@ import './configs'
 import { Editor as PrimitiveEditor } from '@monaco-editor/react'
 import { Modal, ModalContent, ModalTitle } from '@process:renderer/components/_molecules/modal'
 import { openPLCStoreBase, useOpenPLCStore } from '@process:renderer/store'
-import { buildIecDebugBreakpoint, formatIecDebugValue, iecDebugValueSize } from '@root/renderer/utils/iec-debug'
+import {
+  buildIecDebugBreakpoint,
+  findIecDebugVariableByIdentifier,
+  formatIecDebugValue,
+  iecDebugValueSize,
+} from '@root/renderer/utils/iec-debug'
 import { PLCVariable } from '@root/types/PLC'
 import type { IecDebugResumeMode, IecDebugVariable } from '@root/types/PLC/iec-debug'
 import { baseTypeSchema, type PLCPou } from '@root/types/PLC/open-plc'
@@ -247,6 +252,49 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       active = false
     }
   }, [currentIecDebugLocals, iecDebugStatus?.haltCount, isIecDebugHalted])
+
+  useEffect(() => {
+    if (!isIecDebugSession) return
+
+    const disposable = monaco.languages.registerHoverProvider('st', {
+      provideHover: (model, position) => {
+        if (
+          !isIecDebugHalted ||
+          model !== editorRef.current?.getModel() ||
+          currentIecDebugInstance?.pou_id !== iecDebugPou?.id
+        )
+          return null
+        const word = model.getWordAtPosition(position)
+        if (!word) return null
+
+        const variable = findIecDebugVariableByIdentifier(currentIecDebugLocals, word.word)
+        if (!variable) return null
+        const value = iecDebugLocalValues.get(variable.id)
+        if (value === undefined) return null
+
+        const displayName = currentIecDebugInstance
+          ? variable.path.replace(`${currentIecDebugInstance.path}.`, '')
+          : variable.path
+        return {
+          range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+          contents: [
+            {
+              value: `**${displayName}**\n\nType: \`${variable.type}\`\n\nValue: \`${value}\``,
+            },
+          ],
+        }
+      },
+    })
+
+    return () => disposable.dispose()
+  }, [
+    currentIecDebugInstance,
+    currentIecDebugLocals,
+    iecDebugPou?.id,
+    iecDebugLocalValues,
+    isIecDebugHalted,
+    isIecDebugSession,
+  ])
 
   useEffect(() => {
     if (editorRef.current && searchQuery) {
