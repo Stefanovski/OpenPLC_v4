@@ -4,6 +4,8 @@ import { PLCVariable } from '@root/types/PLC/units/variable'
 import { cn } from '@root/utils'
 import { ComponentPropsWithRef, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 
+import { resolveImplicitVariableMatch } from './implicit-submit'
+
 export type GraphicalEditorAutocompleteProps = ComponentPropsWithRef<'div'> & {
   isOpen?: boolean
   setIsOpen?: (isOpen: boolean) => void
@@ -84,6 +86,14 @@ export const GraphicalEditorAutocomplete = forwardRef<HTMLDivElement, GraphicalE
       ].filter((variable) => variable !== undefined)
     }, [variables, searchValue])
 
+    const resolveImplicitSubmitOption = () => {
+      const exactMatch = resolveImplicitVariableMatch(variables, searchValue)
+      if (exactMatch) return exactMatch
+
+      const addVariableOption = selectableValues.find((item) => item.type === 'add')
+      return addVariableOption?.variable
+    }
+
     // @ts-expect-error - not all properties are used
     useImperativeHandle(ref, () => {
       return {
@@ -99,9 +109,9 @@ export const GraphicalEditorAutocomplete = forwardRef<HTMLDivElement, GraphicalE
          */
         triggerSubmit: () => {
           if (selectedVariable.positionInArray === -1) {
-            const addVariableOption = selectableValues.find((item) => item.type === 'add')
-            if (addVariableOption) {
-              submitAutocompletion({ variable: addVariableOption.variable })
+            const implicit = resolveImplicitSubmitOption()
+            if (implicit) {
+              submitAutocompletion({ variable: implicit })
             } else {
               closeModal()
             }
@@ -110,7 +120,7 @@ export const GraphicalEditorAutocomplete = forwardRef<HTMLDivElement, GraphicalE
           }
         },
       }
-    }, [selectedVariable, selectableValues, popoverRef, autocompleteFocus])
+    }, [selectedVariable, selectableValues, variables, searchValue, popoverRef, autocompleteFocus])
 
     useEffect(() => {
       switch (keyDown) {
@@ -140,13 +150,12 @@ export const GraphicalEditorAutocomplete = forwardRef<HTMLDivElement, GraphicalE
           break
         case 'Tab':
         case 'Enter':
-          // If nothing is selected (positionInArray === -1), find the "Add variable" option
           if (selectedVariable.positionInArray === -1) {
-            const addVariableOption = selectableValues.find((item) => item.type === 'add')
-            if (addVariableOption) {
-              submitAutocompletion({ variable: addVariableOption.variable })
+            const implicit = resolveImplicitSubmitOption()
+            if (implicit) {
+              submitAutocompletion({ variable: implicit })
             } else {
-              // No 'add' option available; close the autocomplete to provide clear feedback
+              // No exact match and no add option available; close with clear feedback.
               closeModal()
             }
           } else {

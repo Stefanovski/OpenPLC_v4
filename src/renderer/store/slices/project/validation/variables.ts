@@ -255,6 +255,38 @@ const checkVariableNameUnit = (variables: PLCVariableUnit[], variableName: strin
  * This is a validation to check if it is needed changing the name of a variable at creation.
  * If the variable exists change the variable name.
  **/
+const incrementLocationByOne = (location: string, typeValue: string): string | null => {
+  switch (typeValue.toUpperCase()) {
+    case 'BOOL': {
+      const prefix = location.startsWith('%QX') ? '%QX' : '%IX'
+      const [positionText, bitText] = location.slice(prefix.length).split('.')
+      const position = parseInt(positionText)
+      const bit = parseInt(bitText)
+      return `${prefix}${bit === 7 ? position + 1 : position}.${bit === 7 ? 0 : bit + 1}`
+    }
+    case 'INT':
+    case 'UINT':
+    case 'WORD': {
+      const prefix = location.startsWith('%QW') ? '%QW' : location.startsWith('%IW') ? '%IW' : '%MW'
+      return `${prefix}${parseInt(location.slice(prefix.length)) + 1}`
+    }
+    case 'DINT':
+    case 'UDINT':
+    case 'REAL':
+    case 'DWORD':
+      return `%MD${parseInt(location.slice(3)) + 1}`
+    case 'LINT':
+    case 'ULINT':
+    case 'LREAL':
+    case 'LWORD':
+      return `%ML${parseInt(location.slice(3)) + 1}`
+    default:
+      return null
+  }
+}
+
+const MAX_AUTO_INCREMENT_ITERATIONS = 8192
+
 const createVariableValidation = (
   variables: PLCVariable[],
   variable: PLCVariable,
@@ -267,64 +299,17 @@ const createVariableValidation = (
     response.name = `${variableNameWithoutNumber}${number}`
   }
 
-  if (checkIfLocationExists(variables, variableLocation)) {
-    if (variableLocation === '') return response
-
-    const variableFound = variables.find((variable) => variable.location === variableLocation)
-    if (!variableFound) return response
-
-    switch (variable.type.value.toUpperCase()) {
-      case 'BOOL': {
-        const stringWithNoPrefix = variableFound.location.replace('%QX', '').replace('%IX', '')
-        const position = parseInt(stringWithNoPrefix.split('.')[0])
-        const dotPosition = parseInt(stringWithNoPrefix.split('.')[1])
-
-        if (variableFound?.location.startsWith('%QX')) {
-          response.location = `%QX${dotPosition === 7 ? position + 1 : position}.${dotPosition === 7 ? 0 : dotPosition + 1}`
-        } else {
-          response.location = `%IX${dotPosition === 7 ? position + 1 : position}.${dotPosition === 7 ? 0 : dotPosition + 1}`
-        }
-        break
-      }
-
-      case 'INT':
-      case 'UINT':
-      case 'WORD': {
-        const stringWithNoPrefix = variableFound.location.replace('%QW', '').replace('%IW', '').replace('%MW', '')
-        const position = parseInt(stringWithNoPrefix)
-        if (variableFound?.location.startsWith('%QW')) {
-          response.location = `%QW${position + 1}`
-        } else if (variableFound?.location.startsWith('%IW')) {
-          response.location = `%IW${position + 1}`
-        } else {
-          response.location = `%MW${position + 1}`
-        }
-        break
-      }
-
-      case 'DINT':
-      case 'UDINT':
-      case 'REAL':
-      case 'DWORD': {
-        const stringWithNoPrefix = variableFound.location.replace('%MD', '')
-        const position = parseInt(stringWithNoPrefix)
-        response.location = `%MD${position + 1}`
-        break
-      }
-
-      case 'LINT':
-      case 'ULINT':
-      case 'LREAL':
-      case 'LWORD': {
-        const stringWithNoPrefix = variableFound.location.replace('%ML', '')
-        const position = parseInt(stringWithNoPrefix)
-        response.location = `%ML${position + 1}`
-        break
-      }
-
-      default:
-        break
+  if (checkIfLocationExists(variables, variableLocation) && variableLocation !== '') {
+    const locationsInUse = new Set(variables.map((existingVariable) => existingVariable.location))
+    let candidate = variableLocation
+    let iterations = 0
+    while (locationsInUse.has(candidate) && iterations < MAX_AUTO_INCREMENT_ITERATIONS) {
+      const next = incrementLocationByOne(candidate, variable.type.value)
+      if (!next || next === candidate) break
+      candidate = next
+      iterations += 1
     }
+    response.location = candidate
   }
   return response
 }
