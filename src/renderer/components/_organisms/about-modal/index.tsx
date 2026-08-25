@@ -19,9 +19,9 @@ const AboutModal = () => {
   const closeModal = () => {
     setModalOpen('aboutOpenPlc', false)
   }
-  const title = 'OpenPLC Editor 4.2.2d4'
+  const title = 'OpenPLC Editor 4.2.3d4'
   const edition = 'Eurosonic Edition'
-  const synchronization = 'Upstream synchronization: OpenPLC v4.2.2 (selective; legacy xml2st)'
+  const synchronization = 'Upstream synchronization: OpenPLC v4.2.3 (selective; legacy xml2st)'
   const generatorTarget = 'Generator target: Eurosonic_Gen2 2.11.0'
   const description = 'Open Source IDE for the OpenPLC Runtime, compliant with the IEC 61131-3 international standard.'
   const copyright = '© 2025 Autonomy Logic'
