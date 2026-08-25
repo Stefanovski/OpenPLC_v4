@@ -1036,6 +1036,12 @@ class MainProcessBridge implements MainIpcModule {
         }
       }
 
+      if (this.debuggerModbusClient instanceof ModbusTcpClient && !this.debuggerModbusClient.isConnected()) {
+        this.debuggerModbusClient.disconnect()
+        this.debuggerModbusClient = null
+        return { success: false, error: result.error, needsReconnect: true }
+      }
+
       return { success: false, error: result.error }
     } catch (error) {
       if (this.debuggerModbusClient) {

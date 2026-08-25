@@ -124,24 +124,53 @@ export class ModbusTcpClient {
     return this.transactionId
   }
 
+  private invalidateSocket(socket: Socket): void {
+    if (this.socket === socket) this.socket = null
+    if (!socket.destroyed) socket.destroy()
+  }
+
+  isConnected(): boolean {
+    return this.socket !== null && !this.socket.destroyed
+  }
+
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.socket = new Socket()
+      this.disconnect()
+      const socket = new Socket()
+      this.socket = socket
+      let settled = false
 
       const timeoutHandle = setTimeout(() => {
-        this.socket?.destroy()
+        if (settled) return
+        settled = true
+        this.invalidateSocket(socket)
         reject(new Error('Connection timeout'))
       }, this.timeout)
 
-      this.socket.connect(this.port, this.host, () => {
+      socket.once('connect', () => {
+        if (settled) return
+        settled = true
         clearTimeout(timeoutHandle)
         resolve()
       })
 
-      this.socket.on('error', (error) => {
+      socket.on('error', (error) => {
         clearTimeout(timeoutHandle)
+        this.invalidateSocket(socket)
+        if (settled) return
+        settled = true
         reject(error)
       })
+
+      socket.on('close', () => {
+        clearTimeout(timeoutHandle)
+        if (this.socket === socket) this.socket = null
+        if (settled) return
+        settled = true
+        reject(new Error('Connection closed'))
+      })
+
+      socket.connect(this.port, this.host)
     })
   }
 
@@ -154,34 +183,53 @@ export class ModbusTcpClient {
 
   private sendTcpRequestImpl(request: Buffer): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      if (!this.socket) {
+      const socket = this.socket
+      if (!socket || socket.destroyed) {
         reject(new Error('Not connected to target'))
         return
       }
 
+      let settled = false
+      const cleanup = () => {
+        clearTimeout(timeoutHandle)
+        socket.removeListener('data', onData)
+        socket.removeListener('error', onError)
+        socket.removeListener('close', onClose)
+      }
+      const fail = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        this.invalidateSocket(socket)
+        reject(error)
+      }
       const timeoutHandle = setTimeout(() => {
-        this.socket?.removeListener('data', onData)
-        this.socket?.removeListener('error', onError)
-        reject(new Error('Request timeout'))
+        fail(new Error('Request timeout'))
       }, this.timeout)
 
       const onData = (data: Buffer) => {
-        clearTimeout(timeoutHandle)
-        this.socket?.removeListener('data', onData)
-        this.socket?.removeListener('error', onError)
+        if (settled) return
+        settled = true
+        cleanup()
         resolve(data)
       }
 
       const onError = (error: Error) => {
-        clearTimeout(timeoutHandle)
-        this.socket?.removeListener('data', onData)
-        this.socket?.removeListener('error', onError)
-        reject(error)
+        fail(error)
       }
 
-      this.socket.once('data', onData)
-      this.socket.once('error', onError)
-      this.socket.write(request as unknown as Uint8Array)
+      const onClose = () => {
+        fail(new Error('Connection closed'))
+      }
+
+      socket.once('data', onData)
+      socket.once('error', onError)
+      socket.once('close', onClose)
+      try {
+        socket.write(request as unknown as Uint8Array)
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 
@@ -301,7 +349,8 @@ export class ModbusTcpClient {
     request.writeUInt32BE(condition?.variableId ?? 0, 13)
     request.writeUInt8(condition?.value.length ?? 0, 17)
     if (condition) {
-      for (let index = 0; index < Math.min(condition.value.length, 8); index++) request[18 + index] = condition.value[index]
+      for (let index = 0; index < Math.min(condition.value.length, 8); index++)
+        request[18 + index] = condition.value[index]
     }
     request.writeUInt16BE(change?.type ?? 0, 26)
     request.writeUInt32BE(change?.variableId ?? 0, 28)

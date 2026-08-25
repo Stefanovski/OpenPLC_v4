@@ -225,4 +225,32 @@ describe('ModbusTcpClient IEC debugger protocol', () => {
   it('reports target-side result codes', async () => {
     await expect(client.readIecDebugVariable(0xdead, 6)).rejects.toThrow('NOT_FOUND')
   })
+
+  it('invalidates a connection after a request timeout', async () => {
+    const serverSockets = new Set<Socket>()
+    const silentServer = createServer((socket) => {
+      serverSockets.add(socket)
+      socket.once('close', () => serverSockets.delete(socket))
+    })
+    await new Promise<void>((resolve) => silentServer.listen(0, '127.0.0.1', resolve))
+    const silentClient = new ModbusTcpClient({
+      host: '127.0.0.1',
+      port: (silentServer.address() as AddressInfo).port,
+      timeout: 50,
+    })
+
+    try {
+      await silentClient.connect()
+      expect(silentClient.isConnected()).toBe(true)
+      await expect(silentClient.getVariablesList([0])).resolves.toMatchObject({
+        success: false,
+        error: 'Request timeout',
+      })
+      expect(silentClient.isConnected()).toBe(false)
+    } finally {
+      silentClient.disconnect()
+      serverSockets.forEach((socket) => socket.destroy())
+      await new Promise<void>((resolve, reject) => silentServer.close((error) => (error ? reject(error) : resolve())))
+    }
+  })
 })
