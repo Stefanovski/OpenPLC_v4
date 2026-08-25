@@ -81,6 +81,8 @@ const VariablesEditor = () => {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [returnType, setReturnType] = useState('BOOL')
   const [returnTypeOptions, setReturnTypeOptions] = useState<string[]>([])
+  const showReturnType =
+    (editor.type === 'plc-textual' || editor.type === 'plc-graphical') && editor.meta.pouType === 'function'
   const [editorCode, setEditorCode] = useState(() => {
     if (
       (editor.type === 'plc-textual' || editor.type === 'plc-graphical') &&
@@ -926,7 +928,7 @@ const VariablesEditor = () => {
         <div aria-label='Variables editor actions' className='relative flex h-8 w-full gap-4'>
           {editorVariables.display === 'table' && (
             <div aria-label='Variables editor table actions container' className='flex h-full w-full select-none gap-4'>
-              {editor.type === 'plc-textual' && editor.meta.pouType === 'function' && (
+              {showReturnType && (
                 <div className='flex h-full max-w-lg flex-1 items-center gap-2'>
                   <label
                     htmlFor='return type'

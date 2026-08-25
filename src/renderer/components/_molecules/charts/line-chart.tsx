@@ -155,7 +155,8 @@ const LineChart = ({ data, isBool, range, now, startTime, label }: ChartProps) =
         },
       },
       stroke: {
-        curve: isBool ? ('stepline' as const) : ('straight' as const),
+        // Debug values are samples. Hold each value until the next sample instead of interpolating between them.
+        curve: 'stepline' as const,
         width: 2,
         colors: [graphColors.stroke],
       },
