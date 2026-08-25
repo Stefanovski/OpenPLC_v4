@@ -26,6 +26,11 @@ import * as tftp from 'tftp'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import {
+  EUROSONIC_PLC_FLASH_SIZE_BYTES,
+  EUROSONIC_PLC_HEADER_SIZE_BYTES,
+  validateEurosonicPlcBinary,
+} from './eurosonic-plc-binary'
+import {
   bindIecDebugVariablesToInstances,
   buildGraphicalDebugBindings,
   enrichIecDebugMetadata,
@@ -101,6 +106,33 @@ class CompilerModule {
   static readonly COMPILATION_STATUS_POLL_INTERVAL_MS = 1000 // 1 second (important-comment)
   static readonly TFTP_REQUEST_TIMEOUT_MS = 5000
   static readonly TFTP_UPLOAD_TIMEOUT_MS = 30_000
+
+  private async validateBinaryForBoard(
+    boardTarget: string,
+    binaryPath: string,
+    handleOutputData: HandleOutputDataCallback,
+  ): Promise<number> {
+    if (!existsSync(binaryPath)) throw new Error(`Failed to find binary file at: ${binaryPath}`)
+
+    const binarySize = statSync(binaryPath).size
+    if (boardTarget !== 'Eurosonic_Gen2') return binarySize
+
+    const validation = validateEurosonicPlcBinary(await readFile(binaryPath))
+    if (!validation.valid) {
+      throw new Error(
+        `OPEN_PLC.bin is not suitable for Eurosonic_Gen2: ${validation.reason}. ` +
+          `Maximum file size is ${EUROSONIC_PLC_FLASH_SIZE_BYTES} bytes including the ` +
+          `${EUROSONIC_PLC_HEADER_SIZE_BYTES}-byte header.`,
+      )
+    }
+
+    const usagePercent = ((validation.fileSize / EUROSONIC_PLC_FLASH_SIZE_BYTES) * 100).toFixed(1)
+    handleOutputData(
+      `PLC binary validated: ${validation.fileSize} / ${EUROSONIC_PLC_FLASH_SIZE_BYTES} bytes (${usagePercent}% of PLC flash).`,
+      'info',
+    )
+    return validation.fileSize
+  }
 
   constructor() {
     this.binaryDirectoryPath = this.#constructBinaryDirectoryPath()
@@ -1355,12 +1387,14 @@ class CompilerModule {
   // STN: UPDATED STEP 11 (Native Node.js TFTP Upload + HTTP Run-Mode Control)
   async handleUploadProgram({
     projectPath,
+    boardTarget,
     arduinoPlatform,
     compilationPath,
     handleOutputData,
     runtimeIpAddress,
   }: {
     projectPath: string
+    boardTarget: string
     arduinoPlatform: string
     compilationPath: string
     handleOutputData: HandleOutputDataCallback
@@ -1381,15 +1415,13 @@ class CompilerModule {
 
     handleOutputData(`Reading binary from: ${binaryPath}`, 'info')
 
-    if (!existsSync(binaryPath)) {
-      handleOutputData(`Failed to find binary file at: ${binaryPath}`, 'error')
-      return
-    }
-
     const remoteName = path.basename(binaryPath)
-    const binarySize = statSync(binaryPath).size
 
     try {
+      // Validate before MODE_SAFEOP so an invalid or oversized binary cannot
+      // alter the state of the running PLC application.
+      const binarySize = await this.validateBinaryForBoard(boardTarget, binaryPath, handleOutputData)
+
       // ==========================================
       // SCHRITT 1: PLC THREAD STOPPEN
       // ==========================================
@@ -2704,6 +2736,26 @@ class CompilerModule {
       return
     }
 
+    if (boardTarget === 'Eurosonic_Gen2') {
+      const binaryPath = join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
+      try {
+        await this.validateBinaryForBoard(boardTarget, binaryPath, (data, logLevel) => {
+          _mainProcessPort.postMessage({ logLevel, message: data })
+        })
+      } catch (error) {
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        })
+        _mainProcessPort.postMessage({
+          logLevel: 'error',
+          message: 'Stopping process because OPEN_PLC.bin does not fit the selected target.',
+        })
+        _mainProcessPort.close()
+        return
+      }
+    }
+
     // STN: PRE-STEP 12 - Statische IP aus configuration.json ermitteln
     let targetUploadIp = runtimeIpAddress // Fallback auf die übergebene IP
 
@@ -2749,6 +2801,7 @@ class CompilerModule {
       try {
         await this.handleUploadProgram({
           projectPath: normalizedProjectPath,
+          boardTarget,
           arduinoPlatform: halsContent[boardTarget]['platform'],
           compilationPath,
           runtimeIpAddress: targetUploadIp,
