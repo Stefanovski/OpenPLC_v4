@@ -659,11 +659,13 @@ class MainProcessBridge implements MainIpcModule {
       nativeTheme.themeSource = savedTheme
     }
 
+    const isWindowMaximized = this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow.isMaximized() : false
+
     return {
       OS: platform,
       architecture: 'x64',
       prefersDarkMode: nativeTheme.shouldUseDarkColors,
-      isWindowMaximized: this.mainWindow?.isMaximized(),
+      isWindowMaximized,
     }
   }
   handleStoreRetrieveRecent = async () => {
@@ -762,7 +764,11 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
   handleWindowReload = () => this.mainWindow?.webContents.reload()
-  handleWindowRebuildMenu = () => void this.menuBuilder.buildMenu()
+  handleWindowRebuildMenu = () => {
+    void this.menuBuilder.buildMenu().catch((error) => {
+      console.error('Error rebuilding application menu:', error)
+    })
+  }
 
   // Hardware handlers
   handleHardwareGetAvailableCommunicationPorts = async () => this.hardwareModule.getAvailableSerialPorts()
