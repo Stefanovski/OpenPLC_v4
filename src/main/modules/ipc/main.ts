@@ -61,6 +61,7 @@ class MainProcessBridge implements MainIpcModule {
   private debuggerWebSocketClient: WebSocketDebugClient | null = null
   private debuggerTargetIp: string | null = null
   private debuggerReconnecting: boolean = false
+  private debuggerTcpReconnectPromise: Promise<ModbusTcpClient> | null = null
   private debuggerConnectionType: 'tcp' | 'rtu' | 'websocket' | null = null
   private debuggerRtuPort: string | null = null
   private debuggerRtuBaudRate: number | null = null
@@ -1197,16 +1198,66 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
 
-  private getIecDebugTcpClient(): ModbusTcpClient {
-    if (this.debuggerConnectionType !== 'tcp' || !(this.debuggerModbusClient instanceof ModbusTcpClient)) {
+  private async getIecDebugTcpClient(): Promise<ModbusTcpClient> {
+    if (this.debuggerConnectionType !== 'tcp') {
       throw new Error('IEC statement debugging requires an active Modbus TCP debugger connection')
     }
-    return this.debuggerModbusClient
+
+    if (this.debuggerModbusClient instanceof ModbusTcpClient && this.debuggerModbusClient.isConnected()) {
+      return this.debuggerModbusClient
+    }
+
+    if (!this.debuggerTargetIp) {
+      throw new Error('No target IP address stored')
+    }
+
+    if (this.debuggerModbusClient) {
+      this.debuggerModbusClient.disconnect()
+      this.debuggerModbusClient = null
+    }
+
+    if (this.debuggerTcpReconnectPromise) return this.debuggerTcpReconnectPromise
+
+    const targetIp = this.debuggerTargetIp
+    const reconnectPromise = (async (): Promise<ModbusTcpClient> => {
+      const client = new ModbusTcpClient({
+        host: targetIp,
+        port: 502,
+        timeout: 5000,
+      })
+
+      try {
+        await client.connect()
+      } catch (error) {
+        client.disconnect()
+        throw new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`)
+      }
+
+      if (this.debuggerConnectionType !== 'tcp' || this.debuggerTargetIp !== targetIp) {
+        client.disconnect()
+        throw new Error('Debugger session changed while reconnecting')
+      }
+
+      this.debuggerModbusClient = client
+      return client
+    })()
+
+    this.debuggerReconnecting = true
+    this.debuggerTcpReconnectPromise = reconnectPromise
+    try {
+      return await reconnectPromise
+    } finally {
+      if (this.debuggerTcpReconnectPromise === reconnectPromise) {
+        this.debuggerTcpReconnectPromise = null
+        this.debuggerReconnecting = false
+      }
+    }
   }
 
   handleDebuggerIecCapabilities = async (): Promise<{ success: boolean; data?: number; error?: string }> => {
     try {
-      const data = await this.getIecDebugTcpClient().getIecDebugCapabilities()
+      const client = await this.getIecDebugTcpClient()
+      const data = await client.getIecDebugCapabilities()
       this.debuggerIecSupported = true
       return { success: true, data }
     } catch (error) {
@@ -1217,7 +1268,8 @@ class MainProcessBridge implements MainIpcModule {
 
   handleDebuggerIecStatus = async (): Promise<{ success: boolean; data?: IecDebugStatus; error?: string }> => {
     try {
-      const status = await this.getIecDebugTcpClient().getIecDebugStatus()
+      const client = await this.getIecDebugTcpClient()
+      const status = await client.getIecDebugStatus()
       return {
         success: true,
         data: {
@@ -1237,7 +1289,7 @@ class MainProcessBridge implements MainIpcModule {
     enabled: boolean,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const client = this.getIecDebugTcpClient()
+      const client = await this.getIecDebugTcpClient()
       if (enabled) await client.setIecDebugBreakpoint(statementId)
       else await client.clearIecDebugBreakpoint(statementId)
       return { success: true }
@@ -1248,7 +1300,8 @@ class MainProcessBridge implements MainIpcModule {
 
   handleDebuggerIecClearBreakpoints = async (): Promise<{ success: boolean; error?: string }> => {
     try {
-      await this.getIecDebugTcpClient().clearIecDebugBreakpoints()
+      const client = await this.getIecDebugTcpClient()
+      await client.clearIecDebugBreakpoints()
       return { success: true }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -1264,7 +1317,7 @@ class MainProcessBridge implements MainIpcModule {
       if (!breakpoint || !Number.isInteger(breakpoint.statementId) || breakpoint.statementId <= 0) {
         throw new Error('Invalid IEC debug statement ID')
       }
-      const client = this.getIecDebugTcpClient()
+      const client = await this.getIecDebugTcpClient()
       if (enabled) {
         if (breakpoint.condition) {
           assertIecDebugVariableDescriptor(breakpoint.condition.variableId, breakpoint.condition.type)
@@ -1292,7 +1345,7 @@ class MainProcessBridge implements MainIpcModule {
     mode: IecDebugResumeMode,
   ): Promise<{ success: boolean; error?: string }> => {
     try {
-      const client = this.getIecDebugTcpClient()
+      const client = await this.getIecDebugTcpClient()
       if (mode === 'continue') await client.continueIecDebug()
       else if (mode === 'step-into') await client.stepIntoIecDebug()
       else if (mode === 'step-over') await client.stepOverIecDebug()
@@ -1306,7 +1359,8 @@ class MainProcessBridge implements MainIpcModule {
 
   handleDebuggerIecCallStack = async (): Promise<{ success: boolean; data?: IecDebugFrame[]; error?: string }> => {
     try {
-      const data = await this.getIecDebugTcpClient().getIecDebugCallStack()
+      const client = await this.getIecDebugTcpClient()
+      const data = await client.getIecDebugCallStack()
       return { success: true, data }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -1320,7 +1374,8 @@ class MainProcessBridge implements MainIpcModule {
   ): Promise<{ success: boolean; data?: IecDebugVariableValue; error?: string }> => {
     try {
       assertIecDebugVariableDescriptor(id, type)
-      const variable = await this.getIecDebugTcpClient().readIecDebugVariable(id, type)
+      const client = await this.getIecDebugTcpClient()
+      const variable = await client.readIecDebugVariable(id, type)
       return { success: true, data: { ...variable, value: Array.from(variable.value) } }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) }
@@ -1339,7 +1394,8 @@ class MainProcessBridge implements MainIpcModule {
         if (!variable || typeof variable !== 'object') throw new Error('Invalid IEC debug variable descriptor')
         assertIecDebugVariableDescriptor(variable.id, variable.type)
       }
-      const values = await this.getIecDebugTcpClient().readIecDebugVariables(variables)
+      const client = await this.getIecDebugTcpClient()
+      const values = await client.readIecDebugVariables(variables)
       return {
         success: true,
         data: values.map((variable) => ({ ...variable, value: Array.from(variable.value) })),
@@ -1358,7 +1414,7 @@ class MainProcessBridge implements MainIpcModule {
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       assertIecDebugVariableDescriptor(id, type)
-      const client = this.getIecDebugTcpClient()
+      const client = await this.getIecDebugTcpClient()
       if (operation === 'unforce') await client.unforceIecDebugVariable(id)
       else {
         if (!(value instanceof Uint8Array) || value.byteLength > 238) {

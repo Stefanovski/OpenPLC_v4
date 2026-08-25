@@ -1684,23 +1684,12 @@ const WorkspaceScreen = () => {
 
         if (!result.success) {
           if (result.needsReconnect) {
-            const { consoleActions, workspaceActions: wsReconnect } = useOpenPLCStore.getState()
+            const { consoleActions } = useOpenPLCStore.getState()
             consoleActions.addLog({
               id: crypto.randomUUID(),
               level: 'error',
               message: `Debugger connection lost: ${result.error || 'Unknown error'}. Attempting to reconnect...`,
             })
-
-            if (result.error?.includes('Failed to reconnect')) {
-              wsReconnect.setDebuggerVisible(false)
-              wsReconnect.setDebugForcedVariables(new Map())
-              consoleActions.addLog({
-                id: crypto.randomUUID(),
-                level: 'error',
-                message: 'Debugger session closed due to connection failure.',
-              })
-              return
-            }
           }
           return
         }
