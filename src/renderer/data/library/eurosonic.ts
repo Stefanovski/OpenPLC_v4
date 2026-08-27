@@ -140,6 +140,77 @@ const Eurosonic: EurosonicLibrary = {
       documentation:
         'Controls one Eurosonic generator weld cycle through its fixed Modbus process image and returns central live and result values.',
     },
+    {
+      name: 'ES_GEN_SCAN',
+      type: 'function-block',
+      language: 'st',
+      variables: [
+        {
+          name: 'MODE',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '0' },
+          documentation: 'Scan command (coil 2): 0=Off, 1=Automatic, 2=Manual. A transition to 1 or 2 starts that mode.',
+        },
+        {
+          name: 'START_FREQ',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '20500' },
+          documentation: 'Upper/start frequency of the scan in Hz (40003).',
+        },
+        {
+          name: 'STOP_FREQ',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '19500' },
+          documentation: 'Lower/stop frequency of the scan in Hz (40004).',
+        },
+        {
+          name: 'MANUAL_FREQ',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '20500' },
+          documentation: 'Frequency held while manual scan mode is active in Hz (40015).',
+        },
+        {
+          name: 'CYCLE_DIVIDER',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '1' },
+          documentation: 'Cycle-skipping ratio from 1 to 256; 1 emits every pulse cycle (40016).',
+        },
+        {
+          name: 'SETTLING_TIME_MS',
+          class: 'input',
+          type: { definition: 'base-type', value: 'UINT' },
+          initialValue: { value: '1' },
+          documentation: 'Settling time from 1 to 5000 ms before accepting a measurement (40017).',
+        },
+        {
+          name: 'STATE',
+          class: 'output',
+          type: { definition: 'base-type', value: 'UINT' },
+          documentation:
+            'Impedance scan state (30102): 0=Idle, 1=RingDown, 2=Arming, 3=Settling, 4=Measuring, 5=Disarming, 6=Complete, 7=Error.',
+        },
+        {
+          name: 'FP',
+          class: 'output',
+          type: { definition: 'base-type', value: 'UINT' },
+          documentation: 'Parallel resonance frequency Fp of the latest valid automatic scan in Hz (30105).',
+        },
+        {
+          name: 'FS',
+          class: 'output',
+          type: { definition: 'base-type', value: 'UINT' },
+          documentation: 'Series resonance frequency Fs of the latest valid automatic scan in Hz (30106).',
+        },
+      ],
+      body: '(* Implemented by the Eurosonic STM32H7 target runtime. *)',
+      documentation:
+        'Runs an automatic or manual Eurosonic impedance scan through the fixed Modbus process image and returns its state, Fp, and Fs.',
+    },
   ],
 }
 

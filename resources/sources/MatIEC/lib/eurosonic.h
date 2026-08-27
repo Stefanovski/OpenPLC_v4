@@ -38,6 +38,33 @@ static inline void ES_PROCESS_WRITE_QX(unsigned int index, IEC_BOOL value)
   }
 }
 
+static inline void ES_PROCESS_WRITE_QX_U8(unsigned int index, IEC_USINT value)
+{
+  IEC_BOOL **locatedValue;
+
+  if ((index >= QX_COUNT) || (index >= MAX_DIGITAL_OUTPUT)) return;
+
+  QX[index] = (IEC_BOOL)value;
+  locatedValue = &bool_output[index / 8U][index % 8U];
+  if (*locatedValue != NULL) {
+    **locatedValue = (IEC_BOOL)value;
+  } else {
+    *locatedValue = &QX[index];
+  }
+}
+
+static inline void ES_PROCESS_RELEASE_QX(unsigned int index)
+{
+  IEC_BOOL **locatedValue;
+
+  if ((index >= QX_COUNT) || (index >= MAX_DIGITAL_OUTPUT)) return;
+
+  locatedValue = &bool_output[index / 8U][index % 8U];
+  if (*locatedValue == &QX[index]) {
+    *locatedValue = NULL;
+  }
+}
+
 static inline IEC_UINT ES_PROCESS_READ_IW(unsigned int index)
 {
   IEC_UINT *locatedValue;
@@ -78,6 +105,7 @@ static inline void ES_PROCESS_WRITE_QW(unsigned int index, IEC_UINT value)
 /* Zero-based process-image positions derived from tools/parameter.json. */
 enum {
   ES_DO_USON = 0,
+  ES_DO_SCAN_MODE = 1,
 
   ES_AI_POWER = 0,
   ES_AI_FREQUENCY = 1,
@@ -87,6 +115,9 @@ enum {
   ES_AI_RESULT_ENERGY = 5,
   ES_AI_RESULT_TIME = 6,
   ES_AI_OSCILLATION = 13,
+  ES_AI_SCAN_STATE = 101,
+  ES_AI_SCAN_FP_FREQUENCY = 104,
+  ES_AI_SCAN_FS_FREQUENCY = 105,
 
   ES_AO_MODE = 0,
   ES_AO_TARGET_AMPLITUDE = 1,
@@ -95,7 +126,10 @@ enum {
   ES_AO_TARGET_ENERGY = 4,
   ES_AO_TARGET_TIME = 5,
   ES_AO_TIME_MIN = 6,
-  ES_AO_TIME_MAX = 7
+  ES_AO_TIME_MAX = 7,
+  ES_AO_SCAN_FREQUENCY = 14,
+  ES_AO_SCAN_CYCLE_DIVIDER = 15,
+  ES_AO_SCAN_SETTLING_TIME_MS = 16
 };
 
 typedef struct {
@@ -196,6 +230,92 @@ static void ES_GEN_WELD_body__(ES_GEN_WELD *data__)
   __SET_VAR(data__->,PHASE,,(INT)ES_PROCESS_READ_IW(ES_AI_PHASE));
   __SET_VAR(data__->,LIVE_AMPLITUDE,,ES_PROCESS_READ_IW(ES_AI_LIVE_AMPLITUDE));
   __SET_VAR(data__->,OSCILLATION,,ES_PROCESS_READ_IW(ES_AI_OSCILLATION));
+}
+
+typedef struct {
+  __DECLARE_VAR(BOOL,EN)
+  __DECLARE_VAR(BOOL,ENO)
+
+  __DECLARE_VAR(UINT,MODE)
+  __DECLARE_VAR(UINT,START_FREQ)
+  __DECLARE_VAR(UINT,STOP_FREQ)
+  __DECLARE_VAR(UINT,MANUAL_FREQ)
+  __DECLARE_VAR(UINT,CYCLE_DIVIDER)
+  __DECLARE_VAR(UINT,SETTLING_TIME_MS)
+
+  __DECLARE_VAR(UINT,STATE)
+  __DECLARE_VAR(UINT,FP)
+  __DECLARE_VAR(UINT,FS)
+
+  /* Internal command-edge state; intentionally not part of the IEC interface. */
+  __DECLARE_VAR(UINT,MODE_PREVIOUS)
+  __DECLARE_VAR(BOOL,COMMAND_INITIALIZED)
+} ES_GEN_SCAN;
+
+static void ES_GEN_SCAN_init__(ES_GEN_SCAN *data__, BOOL retain)
+{
+  __INIT_VAR(data__->EN,(BOOL)1,retain)
+  __INIT_VAR(data__->ENO,(BOOL)1,retain)
+
+  __INIT_VAR(data__->MODE,0,retain)
+  __INIT_VAR(data__->START_FREQ,20500,retain)
+  __INIT_VAR(data__->STOP_FREQ,19500,retain)
+  __INIT_VAR(data__->MANUAL_FREQ,20500,retain)
+  __INIT_VAR(data__->CYCLE_DIVIDER,1,retain)
+  __INIT_VAR(data__->SETTLING_TIME_MS,1,retain)
+
+  __INIT_VAR(data__->STATE,0,retain)
+  __INIT_VAR(data__->FP,0,retain)
+  __INIT_VAR(data__->FS,0,retain)
+  __INIT_VAR(data__->MODE_PREVIOUS,0,retain)
+  __INIT_VAR(data__->COMMAND_INITIALIZED,(BOOL)0,retain)
+
+  ES_PROCESS_REGISTER_IW(ES_AI_SCAN_STATE);
+  ES_PROCESS_REGISTER_IW(ES_AI_SCAN_FP_FREQUENCY);
+  ES_PROCESS_REGISTER_IW(ES_AI_SCAN_FS_FREQUENCY);
+}
+
+static void ES_GEN_SCAN_body__(ES_GEN_SCAN *data__)
+{
+  const IEC_UINT mode = __GET_VAR(data__->MODE);
+  IEC_BOOL commandWritten = (BOOL)0;
+
+  if (!__GET_VAR(data__->EN)) {
+    ES_PROCESS_RELEASE_QX(ES_DO_SCAN_MODE);
+    __SET_VAR(data__->,ENO,,(BOOL)0);
+    return;
+  }
+  __SET_VAR(data__->,ENO,,(BOOL)1);
+
+  /* Transfer all scan parameters before publishing a new scan command. */
+  ES_PROCESS_WRITE_QW(ES_AO_START_FREQUENCY, __GET_VAR(data__->START_FREQ));
+  ES_PROCESS_WRITE_QW(ES_AO_STOP_FREQUENCY, __GET_VAR(data__->STOP_FREQ));
+  ES_PROCESS_WRITE_QW(ES_AO_SCAN_FREQUENCY, __GET_VAR(data__->MANUAL_FREQ));
+  ES_PROCESS_WRITE_QW(ES_AO_SCAN_CYCLE_DIVIDER, __GET_VAR(data__->CYCLE_DIVIDER));
+  ES_PROCESS_WRITE_QW(ES_AO_SCAN_SETTLING_TIME_MS, __GET_VAR(data__->SETTLING_TIME_MS));
+
+  if (!__GET_VAR(data__->COMMAND_INITIALIZED)) {
+    /* Clear a command left by an older program before accepting the first edge. */
+    ES_PROCESS_WRITE_QX_U8(ES_DO_SCAN_MODE, 0U);
+    __SET_VAR(data__->,COMMAND_INITIALIZED,,(BOOL)1);
+    commandWritten = (BOOL)1;
+  }
+
+  if ((mode <= 2U) && (mode != __GET_VAR(data__->MODE_PREVIOUS))) {
+    /* 0 acknowledges/stops the scan; 1 starts automatic and 2 manual mode. */
+    ES_PROCESS_WRITE_QX_U8(ES_DO_SCAN_MODE, (IEC_USINT)mode);
+    commandWritten = (BOOL)1;
+  }
+
+  if (!commandWritten) {
+    /* Firmware owns and clears the command while the autonomous scan runs. */
+    ES_PROCESS_RELEASE_QX(ES_DO_SCAN_MODE);
+  }
+  __SET_VAR(data__->,MODE_PREVIOUS,,mode);
+
+  __SET_VAR(data__->,STATE,,ES_PROCESS_READ_IW(ES_AI_SCAN_STATE));
+  __SET_VAR(data__->,FP,,ES_PROCESS_READ_IW(ES_AI_SCAN_FP_FREQUENCY));
+  __SET_VAR(data__->,FS,,ES_PROCESS_READ_IW(ES_AI_SCAN_FS_FREQUENCY));
 }
 
 #endif /* EUROSONIC_FB_H */
