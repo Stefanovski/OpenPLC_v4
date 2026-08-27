@@ -28,7 +28,6 @@ const BlockedLanguagesStyles = {
   'Ladder Diagram': '',
   'Structured Text': '',
   'Instruction List': '',
-  Python: '',
   'C/C++': '',
 } as const
 
@@ -36,7 +35,7 @@ const Step3 = ({ onPrev, onFinish, onClose }: { onPrev: () => void; onFinish: ()
   type FormData = {
     name: string
     path: string
-    language: 'il' | 'st' | 'ld' | 'sfc' | 'fbd' | 'python'
+    language: 'il' | 'st' | 'ld' | 'sfc' | 'fbd'
     time: string
   }
   const { toast } = useToast()
@@ -113,7 +112,7 @@ const Step3 = ({ onPrev, onFinish, onClose }: { onPrev: () => void; onFinish: ()
                       align='center'
                       side='bottom'
                     >
-                      {PouLanguageSources.filter((lang) => lang.value !== 'Python' && lang.value !== 'C/C++').map(
+                      {PouLanguageSources.filter((lang) => lang.value !== 'C/C++').map(
                         (lang) => {
                           return (
                             <SelectItem

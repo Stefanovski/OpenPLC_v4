@@ -1930,6 +1930,7 @@ __end:
 #include "arduino_lib_FB.h"
 #include "p1am_FB.h"
 #include "stm32.h"
+#include "eurosonic.h"
 #include "MQTT.h"
 #include "sm_cards.h"
 #include "jaguar.h"

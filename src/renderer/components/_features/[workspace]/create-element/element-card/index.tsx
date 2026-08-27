@@ -7,7 +7,7 @@ import { InputWithRef, Select, SelectContent, SelectItem, SelectTrigger } from '
 import { DatatypeDerivationSources } from '@root/renderer/data/sources/data-type'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { PLCArrayDatatype, PLCEnumeratedDatatype, PLCStructureDatatype } from '@root/types/PLC/open-plc'
-import { cn, ConvertToLangShortenedFormat, isArduinoTarget as checkIsArduinoTarget } from '@root/utils'
+import { cn, ConvertToLangShortenedFormat } from '@root/utils'
 import { startCase } from 'lodash'
 import { Dispatch, ReactNode, SetStateAction, useState } from 'react'
 import { Controller, SubmitHandler, useForm } from 'react-hook-form'
@@ -22,7 +22,7 @@ type ElementCardProps = {
 type CreatePouFormProps = {
   type: 'function' | 'function-block' | 'program'
   name: string
-  language: 'il' | 'st' | 'ld' | 'sfc' | 'fbd' | 'python' | 'cpp'
+  language: 'il' | 'st' | 'ld' | 'sfc' | 'fbd' | 'cpp'
 }
 
 type CreateDataTypeFormProps = {
@@ -34,9 +34,6 @@ type CreateDataTypeFormProps = {
   /** TODO: Need to be implemented - Sequential Functional Chart and Functional Block Diagram */
 }
 
-const getBlockedLanguageStyle = (isBlocked: boolean) =>
-  isBlocked ? 'hover:bg-white dark:hover:bg-neutral-950 cursor-not-allowed pointer-events-none opacity-30' : ''
-
 const BlockedLanguagesStyles = {
   'Sequential Functional Chart':
     'hover:bg-white dark:hover:bg-neutral-950 cursor-not-allowed pointer-events-none opacity-30',
@@ -44,7 +41,6 @@ const BlockedLanguagesStyles = {
   'Ladder Diagram': '',
   'Structured Text': '',
   'Instruction List': '',
-  Python: '',
   'C/C++': '',
 } as const
 
@@ -73,13 +69,8 @@ const ElementCard = (props: ElementCardProps): ReactNode => {
   const {
     pouActions: { create },
     datatypeActions: { create: createDatatype },
-    deviceAvailableOptions: { availableBoards },
   } = useOpenPLCStore()
-  const deviceBoard = useOpenPLCStore((state) => state.deviceDefinitions.configuration.deviceBoard)
   const [isOpen, setIsOpen] = useState(false)
-
-  const currentBoardInfo = availableBoards.get(deviceBoard)
-  const isArduinoTarget = checkIsArduinoTarget(currentBoardInfo)
 
   const handleCreatePou: SubmitHandler<CreatePouFormProps> = (data) => {
     try {
@@ -358,10 +349,9 @@ const ElementCard = (props: ElementCardProps): ReactNode => {
                               >
                                 {PouLanguageSources.filter((lang) => {
                                   if (target === 'function-block') return true
-                                  return lang.value !== 'Python' && lang.value !== 'C/C++'
+                                  return lang.value !== 'C/C++'
                                 }).map((lang) => {
-                                  const isPythonBlockedForArduino = lang.value === 'Python' && isArduinoTarget
-                                  const isDisabled = !!BlockedLanguagesStyles[lang.value] || isPythonBlockedForArduino
+                                  const isDisabled = !!BlockedLanguagesStyles[lang.value]
 
                                   return (
                                     <SelectItem
@@ -369,7 +359,6 @@ const ElementCard = (props: ElementCardProps): ReactNode => {
                                       disabled={isDisabled}
                                       className={cn(
                                         BlockedLanguagesStyles[lang.value],
-                                        getBlockedLanguageStyle(isPythonBlockedForArduino),
                                         'flex w-full cursor-pointer items-center px-2 py-[9px] outline-none hover:bg-neutral-100 focus:bg-neutral-100 dark:hover:bg-neutral-900 dark:focus:bg-neutral-900',
                                       )}
                                       value={ConvertToLangShortenedFormat(lang.value)}

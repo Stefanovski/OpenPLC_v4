@@ -33,6 +33,7 @@ import { PlcLogs } from '../components/_organisms/plc-logs'
 import { VariablesEditor } from '../components/_organisms/variables-editor'
 import { WorkspaceActivityBar } from '../components/_organisms/workspace-activity-bar'
 import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templates'
+import { Eurosonic } from '../data/library/eurosonic'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
 import { collectGraphicalDebugWatchKeys } from '../utils/graphical-debug'
@@ -44,6 +45,9 @@ const IEC_DEBUGGER_POLL_INTERVAL_MS = 100
 const IEC_DEBUG_CAP_CALL_STACK = 1 << 7
 const PLC_LOGS_POLL_INTERVAL_MS = 2500
 const ENABLE_LEGACY_GRAPHICAL_WATCH_SCAN = false
+const SystemFunctionBlocks = {
+  pous: [...StandardFunctionBlocks.pous, ...Eurosonic.pous],
+}
 
 const WorkspaceScreen = () => {
   const {
@@ -435,7 +439,7 @@ const WorkspaceScreen = () => {
             | Array<{ name: string; class: string; type: { definition: string; value: string } }>
             | undefined
 
-          const standardFB = StandardFunctionBlocks.pous.find(
+          const standardFB = SystemFunctionBlocks.pous.find(
             (fb: { name: string }) => fb.name.toUpperCase() === nestedFBTypeName,
           )
           if (standardFB) {
@@ -459,14 +463,12 @@ const WorkspaceScreen = () => {
             processNestedVariables(nestedFBVariables, pouName, nestedDebugPath, nestedVarName)
           }
         } else if (fbVar.type.definition === 'user-data-type') {
-          // Nested struct - recursively process
           const structTypeName = fbVar.type.value
           const nestedDebugPath = `${debugPathPrefix}.${fbVar.name.toUpperCase()}`
           const nestedVarName = `${variableNamePrefix}.${fbVar.name}`
-
           // Check if this is actually a function block (some FBs are defined as user-data-type)
           const typeNameUpper = structTypeName.toUpperCase()
-          const isStandardFB = StandardFunctionBlocks.pous.some(
+          const isStandardFB = SystemFunctionBlocks.pous.some(
             (pou: { name: string; type: string }) =>
               pou.name.toUpperCase() === typeNameUpper &&
               pou.type.toLowerCase().replace(/[-_]/g, '') === 'functionblock',
@@ -481,7 +483,7 @@ const WorkspaceScreen = () => {
               | Array<{ name: string; class: string; type: { definition: string; value: string } }>
               | undefined
 
-            const standardFB = StandardFunctionBlocks.pous.find(
+            const standardFB = SystemFunctionBlocks.pous.find(
               (fb: { name: string }) => fb.name.toUpperCase() === typeNameUpper,
             )
             if (standardFB) {
@@ -655,7 +657,7 @@ const WorkspaceScreen = () => {
             | Array<{ name: string; class: string; type: { definition: string; value: string } }>
             | undefined
 
-          const standardFB = StandardFunctionBlocks.pous.find(
+          const standardFB = SystemFunctionBlocks.pous.find(
             (fb: { name: string }) => fb.name.toUpperCase() === fbTypeName,
           )
           if (standardFB) {
@@ -729,7 +731,7 @@ const WorkspaceScreen = () => {
         userDataTypeVars.forEach((udtVar) => {
           const typeNameUpper = udtVar.type.value.toUpperCase()
 
-          const isStandardFB = StandardFunctionBlocks.pous.some(
+          const isStandardFB = SystemFunctionBlocks.pous.some(
             (fb: { name: string; type: string }) =>
               fb.name.toUpperCase() === typeNameUpper && fb.type.toLowerCase().replace(/[-_]/g, '') === 'functionblock',
           )
@@ -742,7 +744,7 @@ const WorkspaceScreen = () => {
             | undefined
 
           if (isStandardFB || isCustomFB) {
-            const standardFB = StandardFunctionBlocks.pous.find(
+            const standardFB = SystemFunctionBlocks.pous.find(
               (fb: { name: string }) => fb.name.toUpperCase() === typeNameUpper,
             )
             if (standardFB) {
