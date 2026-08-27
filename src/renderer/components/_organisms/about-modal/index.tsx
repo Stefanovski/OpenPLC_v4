@@ -22,7 +22,7 @@ const AboutModal = () => {
   }
   const title = `OpenPLC Editor ${packageInfo.version.replace('-', '')}`
   const edition = 'Eurosonic Edition'
-  const synchronization = 'Upstream synchronization: OpenPLC v4.2.3 (selective; legacy xml2st)'
+  const synchronization = 'Upstream synchronization: OpenPLC v4.2.11 (selective; legacy xml2st)'
   const generatorTarget = 'Generator target: Eurosonic_Gen2 2.11.0'
   const description = 'Open Source IDE for the OpenPLC Runtime, compliant with the IEC 61131-3 international standard.'
   const copyright = '© 2025 Autonomy Logic'
