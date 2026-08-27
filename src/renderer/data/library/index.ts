@@ -1,6 +1,7 @@
 export * from './additional-function-blocks'
 export * from './arduino-function-blocks'
 export * from './communication-blocks'
+export * from './eurosonic'
 export * from './function'
 export * from './jaguar'
 export * from './MQTT'

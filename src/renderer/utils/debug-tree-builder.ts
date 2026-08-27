@@ -2,10 +2,14 @@ import type { DebugTreeNode } from '@root/types/debugger'
 import type { PLCProject, PLCVariable } from '@root/types/PLC/open-plc'
 import { parseDimensionRange } from '@root/utils/PLC/array-variable-utils'
 
+import { Eurosonic } from '../data/library/eurosonic'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import type { DebugVariable } from './parse-debug-file'
 
 const DEBUG_TREE_LOGGING = false
+const SystemFunctionBlocks = {
+  pous: [...StandardFunctionBlocks.pous, ...Eurosonic.pous],
+}
 
 /**
  * Normalizes type strings for case-insensitive comparison.
@@ -177,7 +181,7 @@ function buildFunctionBlockTree(
   const compositeKey = `${pouName}:${variable.name}`
   const fullPath = buildVariableBasePath(variable.name, instanceName, variable.class)
 
-  const standardFB = StandardFunctionBlocks.pous.find(
+  const standardFB = SystemFunctionBlocks.pous.find(
     (pou) => pou.name.toUpperCase() === fbTypeNameUpper && normalizeTypeString(pou.type) === 'functionblock',
   )
 
@@ -252,7 +256,7 @@ function buildFunctionBlockTree(
       children.push(nestedFBNode)
     } else if (fbVar.type.definition === 'user-data-type') {
       const typeNameUpper = fbVar.type.value.toUpperCase()
-      const isStandardFB = StandardFunctionBlocks.pous.some(
+      const isStandardFB = SystemFunctionBlocks.pous.some(
         (pou) => pou.name.toUpperCase() === typeNameUpper && normalizeTypeString(pou.type) === 'functionblock',
       )
       const isCustomFB = project.data.pous.some(
@@ -346,14 +350,14 @@ function expandNestedNode(
 
     if (DEBUG_TREE_LOGGING) {
       console.log(`[expandNestedNode] Looking up derived type "${typeName}" (uppercase: "${typeNameUpper}")`)
-      console.log(`  StandardFunctionBlocks.pous.length: ${StandardFunctionBlocks.pous.length}`)
+      console.log(`  SystemFunctionBlocks.pous.length: ${SystemFunctionBlocks.pous.length}`)
       console.log(
         `  Sample standard FBs:`,
-        StandardFunctionBlocks.pous.slice(0, 5).map((p) => ({ name: p.name, type: p.type })),
+        SystemFunctionBlocks.pous.slice(0, 5).map((p) => ({ name: p.name, type: p.type })),
       )
     }
 
-    const standardFB = StandardFunctionBlocks.pous.find(
+    const standardFB = SystemFunctionBlocks.pous.find(
       (pou) => pou.name.toUpperCase() === typeNameUpper && normalizeTypeString(pou.type) === 'functionblock',
     )
     const customFB = project.data.pous.find(
@@ -365,7 +369,7 @@ function expandNestedNode(
       console.log(`  standardFB found: ${!!standardFB}`)
       console.log(`  customFB found: ${!!customFB}`)
       if (!fbDefinition) {
-        const nameOnlyMatch = StandardFunctionBlocks.pous.find((pou) => pou.name.toUpperCase() === typeNameUpper)
+        const nameOnlyMatch = SystemFunctionBlocks.pous.find((pou) => pou.name.toUpperCase() === typeNameUpper)
         if (nameOnlyMatch) {
           console.warn(
             `  Name match found but type filter failed: name="${nameOnlyMatch.name}", type="${nameOnlyMatch.type}"`,

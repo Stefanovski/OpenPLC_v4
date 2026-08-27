@@ -4,6 +4,7 @@ import { useOpenPLCStore } from '@root/renderer/store'
 import { extractNumberAtEnd } from '@root/renderer/store/slices/project/validation/variables'
 import { PLCVariable } from '@root/types/PLC'
 import { cn } from '@root/utils'
+import { getLiteralType } from '@root/utils/keywords'
 import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-id'
 import { expandArrayVariables } from '@root/utils/PLC/array-variable-utils'
 import { Node } from '@xyflow/react'
@@ -123,7 +124,7 @@ const FBDBlockAutoComplete = forwardRef<HTMLDivElement, FBDBlockAutoCompleteProp
             .filter((variable) => variable.name !== '') ?? ([] as PLCVariable[])
         : ([] as PLCVariable[])
 
-    const submitVariableToBlock = (variable: PLCVariable) => {
+    const submitVariableToBlock = (variable: PLCVariable | { name: string }) => {
       const { rung, node: variableNode } = getFBDPouVariablesRungNodeAndEdges(editor, pous, fbdFlows, {
         nodeId: block.id,
       })
@@ -143,6 +144,11 @@ const FBDBlockAutoComplete = forwardRef<HTMLDivElement, FBDBlockAutoCompleteProp
     }
 
     const submitAddVariable = ({ variableName }: { variableName: string }) => {
+      if (getLiteralType(variableName)) {
+        submitVariableToBlock({ name: variableName })
+        return
+      }
+
       const { rung, node } = getFBDPouVariablesRungNodeAndEdges(editor, pous, fbdFlows, {
         nodeId: block.id,
       })
@@ -240,6 +246,11 @@ const FBDBlockAutoComplete = forwardRef<HTMLDivElement, FBDBlockAutoCompleteProp
     }
 
     const submit = ({ variable }: { variable: { id: string; name: string } }) => {
+      if (getLiteralType(valueToSearch)) {
+        submitVariableToBlock({ name: valueToSearch })
+        return
+      }
+
       if (variable.id === 'add') {
         submitAddVariable({ variableName: valueToSearch })
         return

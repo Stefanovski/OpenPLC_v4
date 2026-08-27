@@ -45,6 +45,7 @@
 {#include "sema.txt" }
 {#include "arduino.txt" }
 {#include "stm32.txt" }
+{#include "eurosonic.txt" }
 {#include "p1am.txt" }
 
 
