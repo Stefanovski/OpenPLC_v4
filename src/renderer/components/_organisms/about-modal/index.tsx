@@ -2,6 +2,7 @@ import openPlcLogo from '@root/renderer/assets/icons/about/logo.svg'
 import { Modal, ModalContent } from '@root/renderer/components/_molecules'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { useEffect, useState } from 'react'
+import packageInfo from '../../../../../package.json'
 
 const AboutModal = () => {
   const {
@@ -19,7 +20,7 @@ const AboutModal = () => {
   const closeModal = () => {
     setModalOpen('aboutOpenPlc', false)
   }
-  const title = 'OpenPLC Editor 4.2.11d4'
+  const title = `OpenPLC Editor ${packageInfo.version.replace('-', '')}`
   const edition = 'Eurosonic Edition'
   const synchronization = 'Upstream synchronization: OpenPLC v4.2.3 (selective; legacy xml2st)'
   const generatorTarget = 'Generator target: Eurosonic_Gen2 2.11.0'
