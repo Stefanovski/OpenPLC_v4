@@ -2,6 +2,11 @@ import { RefreshIcon } from '@root/renderer/assets'
 import { toast } from '@root/renderer/components/_features/[app]/toast/use-toast'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { checkVariableNameUnit } from '@root/renderer/store/slices/project/validation/variables'
+import {
+  formatLibraryBlockInterfaceChange,
+  getLibraryBlockInterfaceChanges,
+  resolveCurrentLibraryBlock,
+} from '@root/renderer/utils/library-block-compatibility'
 import type { PLCVariable } from '@root/types/PLC'
 import { cn, generateNumericUUID } from '@root/utils'
 import { newGraphicalEditorNodeID } from '@root/utils/new-graphical-editor-node-id'
@@ -341,7 +346,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       data: { pous },
     },
     projectActions: { createVariable },
-    libraries: { user: userLibraries },
+    libraries,
     fbdFlows,
     snapshotActions: { addSnapshot },
     fbdFlowActions: { updateNode, setNodes, setEdges },
@@ -351,7 +356,6 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
 
   const [blockVariableValue, setBlockVariableValue] = useState<string>('')
   const [wrongVariable, setWrongVariable] = useState<boolean>(false)
-  const [hoveringBlock, setHoveringBlock] = useState(false)
 
   const { variables, rung } = getFBDPouVariablesRungNodeAndEdges(editor, pous, fbdFlows, {
     nodeId: id ?? '',
@@ -577,14 +581,12 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
     const variant = (node.data as BlockNodeData<BlockVariant>)?.variant
     if (!variant) return
 
-    const libMatch = userLibraries.find((lib) => lib.name === variant.name && lib.type === variant.type)
-    if (!libMatch) return
-
-    const libPou = pous.find((pou) => pou.data.name === libMatch.name)
-    if (!libPou) return
+    const currentBlock = resolveCurrentLibraryBlock(libraries, pous, variant.name, variant.type)
+    if (!currentBlock) return
 
     const blockVariant = node.data.variant as BlockVariant
-    const newNodeVariables = (libPou.data.variables || []).map((variable) => {
+    const interfaceChanges = getLibraryBlockInterfaceChanges(variant, currentBlock)
+    const newNodeVariables = (currentBlock.variables || []).map((variable) => {
       let newType
       switch (variable.type.definition) {
         case 'array':
@@ -621,8 +623,8 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       }
     })
 
-    if (libPou.type === 'function') {
-      const variable = getVariableRestrictionType(libPou.data.returnType)
+    if (currentBlock.type === 'function' && currentBlock.returnType) {
+      const variable = getVariableRestrictionType(currentBlock.returnType)
       const hasOut = newNodeVariables.some((v) => v.name === 'OUT')
       if (!hasOut)
         newNodeVariables.push({
@@ -630,11 +632,8 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
           class: 'output',
           type: {
             definition: variable.definition ?? 'derived',
-            value: libPou.data.returnType.toUpperCase(),
+            value: currentBlock.returnType.toUpperCase(),
           },
-          location: '',
-          documentation: '',
-          debug: false,
         })
     }
 
@@ -644,7 +643,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
         x: node.position.x,
         y: node.position.y,
       },
-      variant: { ...libPou.data, type: blockVariant.type, variables: newNodeVariables },
+      variant: { ...currentBlock, type: blockVariant.type, variables: newNodeVariables } as BlockVariant,
       executionControl: (node.data as BlockNodeData<BlockVariant>).executionControl,
     })
     updatedNewNode.data = {
@@ -667,6 +666,11 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
     const updatedOutputVariables = newNode.data.variant.variables.filter(
       (variable) => variable.class === 'output' || variable.class === 'inOut',
     )
+    const incompatibleHandles = new Set(
+      interfaceChanges
+        .filter((change) => change.kind === 'changed' || change.kind === 'removed')
+        .map((change) => change.name.toUpperCase()),
+    )
 
     let newNodes = [...rung.nodes]
     newNodes = newNodes.map((nodeItem) => (nodeItem.id === node.id ? newNode : nodeItem))
@@ -680,6 +684,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
 
         // Only update edges that were previously connected to the node
         if (isSource) {
+          if (incompatibleHandles.has((edge.sourceHandle ?? '').toUpperCase())) return null
           // Find the handle name in the original node's output variables
           const outputIndex = originalNodeSources.findIndex((v) => v.name === edge.sourceHandle)
           // Only connect if the handle exists in both original and updated node
@@ -708,6 +713,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
         }
 
         if (isTarget) {
+          if (incompatibleHandles.has((edge.targetHandle ?? '').toUpperCase())) return null
           // Find the handle name in the original node's input variables
           const inputIndex = originalNodeInputs.findIndex((v) => v.name === edge.targetHandle)
           // Only connect if the handle exists in both original and updated node
@@ -739,6 +745,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
         return edge
       })
       .filter((edge) => edge !== null)
+    const disconnectedEdgeCount = rung.edges.length - newEdges.length
 
     setNodes({
       editorName: editor.meta.name,
@@ -748,6 +755,14 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       editorName: editor.meta.name,
       edges: newEdges,
     })
+    toast({
+      title: `${blockVariant.name} updated`,
+      description: `${interfaceChanges.map(formatLibraryBlockInterfaceChange).join('; ')}.${
+        disconnectedEdgeCount > 0
+          ? ` ${disconnectedEdgeCount} incompatible connection${disconnectedEdgeCount === 1 ? ' was' : 's were'} disconnected.`
+          : ' Verify connected variable types.'
+      }`,
+    })
   }
 
   return (
@@ -755,13 +770,16 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       className={cn('relative', {
         'opacity-40': id.startsWith('copycat'),
       })}
-      onMouseEnter={() => setHoveringBlock(true)}
-      onMouseLeave={() => setHoveringBlock(false)}
     >
-      {data.hasDivergence && hoveringBlock && (
+      {data.hasDivergence && (
         <div
-          className='pointer absolute right-[-12px] top-[-12px] z-10 flex h-6 w-6 items-center justify-center rounded-full bg-slate-600 shadow-sm'
-          onClick={handleUpdateDivergence}
+          className='absolute right-[-12px] top-[-12px] z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-amber-500 text-black shadow-sm'
+          onClick={(event) => {
+            event.stopPropagation()
+            handleUpdateDivergence()
+          }}
+          role='button'
+          aria-label={`Update ${(data.variant as BlockVariant).name} to the current library interface`}
         >
           <TooltipProvider>
             <Tooltip>
@@ -769,7 +787,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
                 <RefreshIcon />
               </TooltipTrigger>
               <TooltipContent side='top' className='text-xs'>
-                Update node
+                Update block to current library interface
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

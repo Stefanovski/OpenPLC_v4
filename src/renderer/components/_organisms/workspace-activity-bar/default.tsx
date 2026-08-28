@@ -4,6 +4,10 @@ import { compileOnlySelectors } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import type { RuntimeConnection } from '@root/renderer/store/slices/device/types'
 import { buildDebugTree } from '@root/renderer/utils/debug-tree-builder'
+import {
+  findOutdatedLibraryBlocks,
+  formatLibraryBlockInterfaceChange,
+} from '@root/renderer/utils/library-block-compatibility'
 import { matchVariableWithDebugEntry, parseDebugFile } from '@root/renderer/utils/parse-debug-file'
 import type { DebugTreeNode, FbInstanceInfo } from '@root/types/debugger'
 import { PLCPou, PLCProjectData } from '@root/types/PLC/open-plc'
@@ -78,6 +82,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     deviceDefinitions,
     deviceAvailableOptions: { availableBoards },
     workspace: { editingState },
+    libraries,
     consoleActions: { addLog },
     sharedWorkspaceActions: { saveProject },
   } = useOpenPLCStore()
@@ -128,7 +133,35 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     }
   }
 
+  const validateLibraryBlockInterfaces = (dataToValidate: PLCProjectData, currentLibraries = libraries): boolean => {
+    const outdatedBlocks = findOutdatedLibraryBlocks(dataToValidate, currentLibraries)
+    if (outdatedBlocks.length === 0) return true
+
+    outdatedBlocks.forEach((block) => {
+      const instance = block.instanceName ? ` instance "${block.instanceName}"` : ''
+      const changes = block.changes.map(formatLibraryBlockInterfaceChange).join('; ')
+      addLog({
+        id: crypto.randomUUID(),
+        level: 'error',
+        message: `POU "${block.pouName}": ${block.blockName}${instance} uses an outdated library interface: ${changes}.`,
+      })
+    })
+    addLog({
+      id: crypto.randomUUID(),
+      level: 'error',
+      message:
+        'Compilation aborted. Open the affected graphical POU, click the amber update icon on the block, and verify variables connected to changed ports.',
+    })
+    return false
+  }
+
   const handleRequest = () => {
+    const currentState = useOpenPLCStore.getState()
+    if (!validateLibraryBlockInterfaces(currentState.project.data, currentState.libraries)) {
+      setIsCompiling(false)
+      return
+    }
+
     const boardCore = availableBoards.get(deviceDefinitions.configuration.deviceBoard)?.core || null
 
     const hasPythonCode = projectData.pous.some((pou: PLCPou) => pou.data.body.language === 'python')
@@ -395,6 +428,22 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     try {
       if (editingState === 'unsaved') {
         await saveProject({ data: projectData, meta: projectMeta }, deviceDefinitions)
+      }
+
+      const currentState = useOpenPLCStore.getState()
+      const outdatedBlocks = findOutdatedLibraryBlocks(currentState.project.data, currentState.libraries)
+      if (outdatedBlocks.length > 0) {
+        validateLibraryBlockInterfaces(currentState.project.data, currentState.libraries)
+        const firstBlock = outdatedBlocks[0]
+        const firstChanges = firstBlock.changes.map(formatLibraryBlockInterfaceChange).join('; ')
+        await showDebuggerMessage(
+          'error',
+          'Outdated Library Block',
+          `${firstBlock.blockName} in POU "${firstBlock.pouName}" uses an outdated interface (${firstChanges}). Open the POU and click the amber update icon on the block.`,
+          ['OK'],
+        )
+        setIsDebuggerProcessing(false)
+        return
       }
 
       const boardTarget = deviceDefinitions.configuration.deviceBoard

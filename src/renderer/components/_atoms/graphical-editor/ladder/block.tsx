@@ -5,6 +5,11 @@ import { useOpenPLCStore } from '@root/renderer/store'
 import { LibraryState } from '@root/renderer/store/slices'
 import { getVariableByNameAndType } from '@root/renderer/store/slices/project/utils'
 import { checkVariableNameUnit } from '@root/renderer/store/slices/project/validation/variables'
+import {
+  formatLibraryBlockInterfaceChange,
+  getLibraryBlockInterfaceChanges,
+  resolveCurrentLibraryBlock,
+} from '@root/renderer/utils/library-block-compatibility'
 import { PLCPou } from '@root/types/PLC/open-plc'
 import type { PLCVariable } from '@root/types/PLC/units/variable'
 import type { VariableReference } from '@root/types/PLC/variable-reference'
@@ -418,7 +423,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       data: { pous },
     },
     projectActions: { createVariable },
-    libraries: { user: userLibraries },
+    libraries,
     ladderFlows,
     snapshotActions: { addSnapshot },
     ladderFlowActions: { updateNode, setNodes, setEdges },
@@ -428,7 +433,6 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
 
   const [blockVariableValue, setBlockVariableValue] = useState<string>('')
   const [wrongVariable, setWrongVariable] = useState<boolean>(false)
-  const [hoveringBlock, setHoveringBlock] = useState(false)
 
   const { variables, rung, node } = getLadderPouVariablesRungNodeAndEdges(editor, pous, ladderFlows, {
     nodeId: id,
@@ -676,14 +680,17 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
     const variant = (node.data as BlockNodeData<BlockVariant>)?.variant
     if (!variant) return
 
-    const libMatch = userLibraries.find((lib) => lib.name === variant.name && lib.type === variant.type)
-    if (!libMatch) return
-
-    const libPou = pous.find((pou) => pou.data.name === libMatch.name)
-    if (!libPou) return
+    const currentBlock = resolveCurrentLibraryBlock(libraries, pous, variant.name, variant.type)
+    if (!currentBlock) return
 
     const blockVariant = node.data.variant as BlockVariant
-    const newNodeVariables = (libPou.data.variables || []).map((variable) => {
+    const interfaceChanges = getLibraryBlockInterfaceChanges(variant, currentBlock)
+    const incompatibleHandles = new Set(
+      interfaceChanges
+        .filter((change) => change.kind === 'changed' || change.kind === 'removed')
+        .map((change) => change.name.toUpperCase()),
+    )
+    const newNodeVariables = (currentBlock.variables || []).map((variable) => {
       let newType
       switch (variable.type.definition) {
         case 'array':
@@ -720,19 +727,18 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       }
     })
 
-    if (libPou.type === 'function') {
-      const variable = getVariableRestrictionType(libPou.data.returnType)
-      newNodeVariables.push({
-        name: 'OUT',
-        class: 'output',
-        type: {
-          definition: variable.definition ?? 'derived',
-          value: libPou.data.returnType.toUpperCase(),
-        },
-        location: '',
-        documentation: '',
-        debug: false,
-      })
+    if (currentBlock.type === 'function' && currentBlock.returnType) {
+      const variable = getVariableRestrictionType(currentBlock.returnType)
+      const hasOut = newNodeVariables.some((item) => item.name === 'OUT')
+      if (!hasOut)
+        newNodeVariables.push({
+          name: 'OUT',
+          class: 'output',
+          type: {
+            definition: variable.definition ?? 'derived',
+            value: currentBlock.returnType.toUpperCase(),
+          },
+        })
     }
 
     const updatedNewNode = buildBlockNode({
@@ -741,7 +747,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       posY: node.position.y,
       handleX: (node.data as BasicNodeData).handles[0].glbPosition.x,
       handleY: (node.data as BasicNodeData).handles[0].glbPosition.y,
-      variant: { ...libPou.data, type: blockVariant.type, variables: [...newNodeVariables] },
+      variant: { ...currentBlock, type: blockVariant.type, variables: [...newNodeVariables] } as BlockVariant,
       executionControl: (node.data as BlockNodeData<BlockVariant>).executionControl,
     })
 
@@ -749,6 +755,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       node.data as BlockNodeData<BlockVariant>
     ).connectedVariables
       .map((connectedVariable) => {
+        if (incompatibleHandles.has(connectedVariable.handleId.toUpperCase())) return undefined
         const matchByName = newNodeVariables.find(
           (newVar) => newVar.name.toLowerCase() === connectedVariable.handleId.toLowerCase(),
         )
@@ -769,7 +776,14 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
     const newBlockNode = { ...updatedNewNode }
 
     let newNodes = [...rung.nodes]
-    let newEdges = [...rung.edges]
+    let newEdges = rung.edges.filter(
+      (edge) =>
+        !(
+          (edge.source === node.id && incompatibleHandles.has((edge.sourceHandle ?? '').toUpperCase())) ||
+          (edge.target === node.id && incompatibleHandles.has((edge.targetHandle ?? '').toUpperCase()))
+        ),
+    )
+    const disconnectedEdgeCount = rung.edges.length - newEdges.length
 
     newNodes = newNodes.map((n) => (n.id === node.id ? newBlockNode : n))
 
@@ -809,6 +823,14 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       rungId: rung.id,
       edges: variableEdges,
     })
+    toast({
+      title: `${blockVariant.name} updated`,
+      description: `${interfaceChanges.map(formatLibraryBlockInterfaceChange).join('; ')}.${
+        disconnectedEdgeCount > 0
+          ? ` ${disconnectedEdgeCount} incompatible connection${disconnectedEdgeCount === 1 ? ' was' : 's were'} disconnected.`
+          : ' Verify connected variable types.'
+      }`,
+    })
   }
 
   return (
@@ -816,13 +838,16 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
       className={cn('relative', {
         'opacity-40': id.startsWith('copycat'),
       })}
-      onMouseEnter={() => setHoveringBlock(true)}
-      onMouseLeave={() => setHoveringBlock(false)}
     >
-      {data.hasDivergence && hoveringBlock && (
+      {data.hasDivergence && (
         <div
-          className='pointer absolute right-[-12px] top-[-12px] z-10 flex h-6 w-6 items-center justify-center rounded-full bg-slate-600 shadow-sm'
-          onClick={handleUpdateDivergence}
+          className='absolute right-[-12px] top-[-12px] z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-amber-500 text-black shadow-sm'
+          onClick={(event) => {
+            event.stopPropagation()
+            handleUpdateDivergence()
+          }}
+          role='button'
+          aria-label={`Update ${(data.variant as BlockVariant).name} to the current library interface`}
         >
           <TooltipProvider>
             <Tooltip>
@@ -830,7 +855,7 @@ export const Block = <T extends object>(block: BlockProps<T>) => {
                 <RefreshIcon />
               </TooltipTrigger>
               <TooltipContent side='top' className='text-xs'>
-                Update node
+                Update block to current library interface
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
