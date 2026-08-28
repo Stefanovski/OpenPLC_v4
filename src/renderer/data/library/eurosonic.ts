@@ -84,8 +84,9 @@ const Eurosonic: EurosonicLibrary = {
         {
           name: 'USON_STATE',
           class: 'output',
-          type: { definition: 'base-type', value: 'BOOL' },
-          documentation: 'Current state of ultrasonic command coil 1.',
+          type: { definition: 'base-type', value: 'UINT' },
+          documentation:
+            'Ultrasonic process state: idle=0, sweep=1, run=2, hold=3, stop=4, error=5 (30107).',
         },
         {
           name: 'FREQUENCY',
