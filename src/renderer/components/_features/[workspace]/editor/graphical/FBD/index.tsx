@@ -1,11 +1,14 @@
-import { BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/fbd/block'
 import { GraphicalIecBreakpointDialog } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-breakpoint-dialog'
 import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
-import { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
 import { FBDBody } from '@root/renderer/components/_molecules/graphical-editor/fbd'
 import { useGraphicalIecDebugControls } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { zodFBDFlowSchema } from '@root/renderer/store/slices'
+import {
+  isLibraryBlockOutdated,
+  resolveCurrentLibraryBlock,
+  ResolvedLibraryBlock,
+} from '@root/renderer/utils/library-block-compatibility'
 import { isEqual } from 'lodash'
 import { useEffect, useMemo } from 'react'
 
@@ -13,7 +16,7 @@ export default function FbdEditor() {
   const editor = useOpenPLCStore((state) => state.editor)
   const fbdFlows = useOpenPLCStore((state) => state.fbdFlows)
   const pous = useOpenPLCStore((state) => state.project.data.pous)
-  const userLibraries = useOpenPLCStore((state) => state.libraries.user)
+  const libraries = useOpenPLCStore((state) => state.libraries)
   const fbdFlowActions = useOpenPLCStore((state) => state.fbdFlowActions)
   const updatePou = useOpenPLCStore((state) => state.projectActions.updatePou)
   const handleFileAndWorkspaceSavedState = useOpenPLCStore(
@@ -32,53 +35,17 @@ export default function FbdEditor() {
     const divergences = []
 
     for (const node of flow.rung.nodes) {
-      const variant = (node.data as BlockNodeData<BlockVariant>)?.variant
+      const variant = (node.data as { variant?: ResolvedLibraryBlock })?.variant
       if (!variant) continue
 
-      const libMatch = userLibraries.find((lib) => lib.name === variant.name && lib.type === variant.type)
-      if (!libMatch) continue
-
-      const originalPou = pous.find((pou) => pou.data.name === libMatch.name)
-      if (!originalPou) continue
-
-      const originalVariables = originalPou.data?.variables ?? []
-      const originalInOut = originalVariables?.filter((variable) =>
-        ['input', 'output', 'inOut'].includes(variable.class || ''),
-      )
-
-      const currentVariables = variant.variables.filter(
-        (variable) =>
-          ['input', 'output', 'inOut'].includes(variable.class || '') && !['OUT', 'EN', 'ENO'].includes(variable.name),
-      )
-
-      const formatVariable = (variable: {
-        name: string
-        class?: string
-        type: { definition: string; value: string }
-      }) => `${variable.name}|${variable.class}|${variable.type.definition}|${variable.type.value?.toLowerCase()}`
-
-      if (originalPou.type === 'function') {
-        const outVariable = variant.variables.find((v) => v.name === 'OUT')
-        const outType = outVariable?.type?.value?.toUpperCase()
-        const returnType = originalPou.data.returnType?.toUpperCase()
-        if (!outType || !returnType || outType !== returnType) {
-          divergences.push(node.id)
-          continue
-        }
-      }
-
-      const currentMap = new Map(currentVariables.map((variable) => [formatVariable(variable), true]))
-      const hasDivergence =
-        originalInOut?.length !== currentVariables.length ||
-        !originalInOut?.every((variable) => currentMap.has(formatVariable(variable)))
-
-      if (hasDivergence) {
+      const currentBlock = resolveCurrentLibraryBlock(libraries, pous, variant.name, variant.type)
+      if (currentBlock && isLibraryBlockOutdated(variant, currentBlock)) {
         divergences.push(node.id)
       }
     }
 
     return divergences
-  }, [flow?.rung.nodes, userLibraries, pous])
+  }, [flow?.rung.nodes, libraries, pous])
 
   /**
    * Update the flow state to project JSON

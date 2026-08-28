@@ -18,7 +18,7 @@ import * as Portal from '@radix-ui/react-portal'
 import { GraphicalDebugStatus } from '@root/renderer/components/_atoms/graphical-editor/graphical-debug-status'
 import { GraphicalIecBreakpointDialog } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-breakpoint-dialog'
 import { GraphicalIecDebugToolbar } from '@root/renderer/components/_atoms/graphical-editor/graphical-iec-debug-toolbar'
-import { BlockNode, BlockNodeData } from '@root/renderer/components/_atoms/graphical-editor/ladder/block'
+import { BlockNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/block'
 import { CoilNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/coil'
 import { ContactNode } from '@root/renderer/components/_atoms/graphical-editor/ladder/contact'
 import { BlockVariant } from '@root/renderer/components/_atoms/graphical-editor/types/block'
@@ -27,6 +27,11 @@ import { Rung } from '@root/renderer/components/_organisms/graphical-editor/ladd
 import { ladderSelectors, useGraphicalIecDebugControls } from '@root/renderer/hooks'
 import { openPLCStoreBase, useOpenPLCStore } from '@root/renderer/store'
 import { RungLadderState, zodLadderFlowSchema } from '@root/renderer/store/slices'
+import {
+  isLibraryBlockOutdated,
+  resolveCurrentLibraryBlock,
+  ResolvedLibraryBlock,
+} from '@root/renderer/utils/library-block-compatibility'
 import { cn } from '@root/utils'
 import { isEqual } from 'lodash'
 import { useEffect, useRef, useState } from 'react'
@@ -52,7 +57,7 @@ export default function LadderEditor() {
     modalActions: { closeModal },
     sharedWorkspaceActions: { handleFileAndWorkspaceSavedState },
     snapshotActions: { addSnapshot },
-    libraries: { user: userLibraries },
+    libraries,
     workspace: { isDebuggerVisible, iecDebugMetadata, iecDebugStatus },
   } = useOpenPLCStore()
 
@@ -285,48 +290,11 @@ export default function LadderEditor() {
 
     for (const rung of flow.rungs) {
       for (const node of rung.nodes) {
-        const variant = (node.data as BlockNodeData<BlockVariant>)?.variant
+        const variant = (node.data as { variant?: ResolvedLibraryBlock })?.variant
         if (!variant) continue
 
-        const libMatch = userLibraries.find((lib) => lib.name === variant.name && lib.type === variant.type)
-        if (!libMatch) continue
-
-        const originalPou = pous.find((pou) => pou.data.name === libMatch.name)
-        if (!originalPou) continue
-
-        const originalVariables = originalPou.data?.variables ?? []
-        const originalInOut = originalVariables?.filter((variable) =>
-          ['input', 'output', 'inOut'].includes(variable.class || ''),
-        )
-
-        const currentVariables = variant.variables.filter(
-          (variable) =>
-            ['input', 'output', 'inOut'].includes(variable.class || '') &&
-            !['OUT', 'EN', 'ENO'].includes(variable.name),
-        )
-
-        const formatVariable = (variable: {
-          name: string
-          class?: string
-          type: { definition: string; value: string }
-        }) => `${variable.name}|${variable.class}|${variable.type.definition}|${variable.type.value?.toLowerCase()}`
-
-        if (originalPou.type === 'function') {
-          const outVariable = variant.variables.find((v) => v.name === 'OUT')
-          const outType = outVariable?.type?.value?.toUpperCase()
-          const returnType = originalPou.data.returnType?.toUpperCase()
-          if (!outType || !returnType || outType !== returnType) {
-            divergences.push(`${rung.id}:${node.id}`)
-            continue
-          }
-        }
-
-        const currentMap = new Map(currentVariables.map((variable) => [formatVariable(variable), true]))
-        const hasDivergence =
-          originalInOut?.length !== currentVariables.length ||
-          !originalInOut?.every((variable) => currentMap.has(formatVariable(variable)))
-
-        if (hasDivergence) {
+        const currentBlock = resolveCurrentLibraryBlock(libraries, pous, variant.name, variant.type)
+        if (currentBlock && isLibraryBlockOutdated(variant, currentBlock)) {
           divergences.push(`${rung.id}:${node.id}`)
         }
       }
