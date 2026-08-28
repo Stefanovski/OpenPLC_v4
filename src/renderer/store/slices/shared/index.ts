@@ -23,11 +23,11 @@ import { StateCreator } from 'zustand'
 import { ConsoleSlice } from '../console'
 import { deviceConfigurationSchema, devicePinSchema, DeviceSlice, DeviceState } from '../device'
 import { EditorModel, EditorSlice } from '../editor'
-import { FBDFlowSlice, FBDFlowType, ZodFBDFlowType } from '../fbd'
+import { FBDFlowSlice, FBDFlowType, zodFBDFlowSchema, ZodFBDFlowType } from '../fbd'
 import { duplicateFBDRung } from '../fbd/utils'
 import { FileSlice, FileSliceDataObject } from '../files'
 import { HistorySlice, HistorySnapshot } from '../history'
-import { LadderFlowSlice, LadderFlowType, ZodLadderFlowType } from '../ladder'
+import { LadderFlowSlice, LadderFlowType, zodLadderFlowSchema, ZodLadderFlowType } from '../ladder'
 import { duplicateLadderRung } from '../ladder/utils'
 import { LibrarySlice } from '../library'
 import { ModalSlice } from '../modal'
@@ -997,6 +997,32 @@ export const createSharedSlice: StateCreator<
               }
             }
           })
+
+          // Opening a project may reclassify variables stored in graphical nodes. Keep the
+          // project model in sync without treating this load-time normalization as a user edit.
+          const synchronizedState = getState()
+          ladderPous.forEach((pou) => {
+            const synchronizedFlow = synchronizedState.ladderFlows.find((flow) => flow.name === pou.data.name)
+            const parsedFlow = zodLadderFlowSchema.safeParse(synchronizedFlow)
+            if (parsedFlow.success) {
+              getState().projectActions.updatePou({
+                name: pou.data.name,
+                content: { language: 'ld', value: parsedFlow.data },
+              })
+            }
+            getState().ladderFlowActions.setFlowUpdated({ editorName: pou.data.name, updated: false })
+          })
+          fbdPous.forEach((pou) => {
+            const synchronizedFlow = synchronizedState.fbdFlows.find((flow) => flow.name === pou.data.name)
+            const parsedFlow = zodFBDFlowSchema.safeParse(synchronizedFlow)
+            if (parsedFlow.success) {
+              getState().projectActions.updatePou({
+                name: pou.data.name,
+                content: { language: 'fbd', value: parsedFlow.data },
+              })
+            }
+            getState().fbdFlowActions.setFlowUpdated({ editorName: pou.data.name, updated: false })
+          })
         }
 
         if (pous.length !== 0) {
@@ -1098,6 +1124,7 @@ export const createSharedSlice: StateCreator<
           saved: true,
         }
         getState().fileActions.setFiles({ files })
+        getState().workspaceActions.setEditingState('saved')
 
         toast({
           title: 'Project opened!',

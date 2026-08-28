@@ -28,6 +28,7 @@ import { ladderSelectors, useGraphicalIecDebugControls } from '@root/renderer/ho
 import { openPLCStoreBase, useOpenPLCStore } from '@root/renderer/store'
 import { RungLadderState, zodLadderFlowSchema } from '@root/renderer/store/slices'
 import { cn } from '@root/utils'
+import { isEqual } from 'lodash'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { v4 as uuidv4 } from 'uuid'
@@ -108,6 +109,12 @@ export default function LadderEditor() {
 
     const flowSchema = zodLadderFlowSchema.safeParse(flow)
     if (!flowSchema.success) return
+
+    const pou = pous.find((candidate) => candidate.data.name === editor.meta.name)
+    if (pou?.data.body.language === 'ld' && isEqual(flowSchema.data, pou.data.body.value)) {
+      ladderFlowActions.setFlowUpdated({ editorName: editor.meta.name, updated: false })
+      return
+    }
 
     updatePou({
       name: editor.meta.name,

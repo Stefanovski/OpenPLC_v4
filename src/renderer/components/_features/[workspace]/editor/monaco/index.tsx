@@ -1158,6 +1158,11 @@ void loop()
     if (value === undefined) return
 
     setLocalText(value)
+
+    const storedValue = typeof pou?.data.body.value === 'string' ? pou.data.body.value : ''
+    const normalizeLineEndings = (text: string) => text.replace(/\r\n/g, '\n')
+    if (normalizeLineEndings(value) === normalizeLineEndings(storedValue)) return
+
     handleFileAndWorkspaceSavedState(name)
     updatePou({ name, content: { language, value } })
   }

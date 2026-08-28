@@ -6,6 +6,7 @@ import { FBDBody } from '@root/renderer/components/_molecules/graphical-editor/f
 import { useGraphicalIecDebugControls } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { zodFBDFlowSchema } from '@root/renderer/store/slices'
+import { isEqual } from 'lodash'
 import { useEffect, useMemo } from 'react'
 
 export default function FbdEditor() {
@@ -87,6 +88,12 @@ export default function FbdEditor() {
 
     const flowSchema = zodFBDFlowSchema.safeParse(flow)
     if (!flowSchema.success) return
+
+    const pou = pous.find((candidate) => candidate.data.name === editor.meta.name)
+    if (pou?.data.body.language === 'fbd' && isEqual(flowSchema.data, pou.data.body.value)) {
+      fbdFlowActions.setFlowUpdated({ editorName: editor.meta.name, updated: false })
+      return
+    }
 
     updatePou({
       name: editor.meta.name,
