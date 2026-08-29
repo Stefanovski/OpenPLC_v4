@@ -117,7 +117,7 @@ export class DiscoveryModule {
     })
   }
 
-  private sendOnAllInterfaces(sockets: BoundSocket[], payload: Buffer, targetIp?: string) {
+  private sendOnAllInterfaces(sockets: BoundSocket[], payload: string, targetIp?: string) {
     sockets.forEach(({ socket, endpoint }) => {
       const destinations = new Set([endpoint.broadcast, '255.255.255.255'])
       if (targetIp) destinations.add(targetIp)
@@ -161,14 +161,14 @@ export class DiscoveryModule {
     const sockets = await this.openBroadcastSockets(onMessage)
     if (sockets.length === 0) return []
 
-    this.sendOnAllInterfaces(sockets, Buffer.from(DISCOVER_GUID))
+    this.sendOnAllInterfaces(sockets, DISCOVER_GUID)
     await this.wait(2000)
     this.closeSockets(sockets)
     return Array.from(devices.values())
   }
 
   private async sendAddressedCommand(
-    payload: Buffer,
+    payload: string,
     targetIp: string | undefined,
     expectedReply: (message: string) => boolean,
     timeoutMs: number,
@@ -197,7 +197,7 @@ export class DiscoveryModule {
       `DHCP=${args.dhcp ? 'ON' : 'OFF'};IP=${args.newIp};NMASK=${args.netmask};GWADD=${args.gateway};HOSTNAME=${args.hostname};`
 
     return this.sendAddressedCommand(
-      Buffer.from(configString),
+      configString,
       args.targetIp,
       (message) => message.startsWith('SETIPCONFIG-ACK'),
       2000,
@@ -208,7 +208,7 @@ export class DiscoveryModule {
     const normalizedMac = mac.trim().toUpperCase()
     if (!MAC_ADDRESS_PATTERN.test(normalizedMac)) return false
 
-    const payload = Buffer.from(`IDENTIFY\r\n${normalizedMac}\r\n`)
+    const payload = `IDENTIFY\r\n${normalizedMac}\r\n`
 
     return this.sendAddressedCommand(
       payload,

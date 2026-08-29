@@ -9,12 +9,66 @@ type DiscoveryDialogProps = {
   onSelectIp: (ip: string) => void
 }
 
+const DEFAULT_NETMASK = '255.255.255.0'
+const DEFAULT_GATEWAY = '0.0.0.0'
+
+const parseIpv4Address = (value: string): number[] | null => {
+  const parts = value.trim().split('.')
+  if (parts.length !== 4) return null
+
+  const octets = parts.map((part) => Number(part))
+  if (parts.some((part) => !/^\d{1,3}$/.test(part)) || octets.some((octet) => octet < 0 || octet > 255)) {
+    return null
+  }
+  return octets
+}
+
+const validateStaticNetworkConfiguration = (ipValue: string, netmaskValue: string, gatewayValue: string) => {
+  const ip = parseIpv4Address(ipValue)
+  const netmask = parseIpv4Address(netmaskValue)
+  const gateway = parseIpv4Address(gatewayValue)
+  if (!ip) return 'Please enter a valid IP address.'
+  if (!netmask) return 'Please enter a valid subnet mask.'
+  if (!gateway) return 'Please enter a valid gateway address.'
+
+  const maskBits = netmask.map((octet) => octet.toString(2).padStart(8, '0')).join('')
+  const firstHostBit = maskBits.indexOf('0')
+  if (firstHostBit <= 0 || maskBits.slice(firstHostBit).includes('1') || 32 - firstHostBit < 2) {
+    return 'The subnet mask must be contiguous and leave at least two host bits.'
+  }
+
+  if (ip[0] === 0 || ip[0] >= 224) return 'The IP address is not a valid unicast address.'
+
+  const network = ip.map((octet, index) => octet & netmask[index])
+  const broadcast = network.map((octet, index) => octet | (~netmask[index] & 0xff))
+  const isSameAddress = (left: number[], right: number[]) => left.every((octet, index) => octet === right[index])
+  if (isSameAddress(ip, network) || isSameAddress(ip, broadcast)) {
+    return 'The IP address must not be the network or broadcast address.'
+  }
+
+  const gatewayDisabled = gateway.every((octet) => octet === 0)
+  if (!gatewayDisabled) {
+    const gatewayNetwork = gateway.map((octet, index) => octet & netmask[index])
+    if (
+      !isSameAddress(gatewayNetwork, network) ||
+      isSameAddress(gateway, network) ||
+      isSameAddress(gateway, broadcast)
+    ) {
+      return 'The gateway must be 0.0.0.0 or a valid host in the configured subnet.'
+    }
+  }
+
+  return null
+}
+
 export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null)
   const [configIp, setConfigIp] = useState('')
+  const [configNetmask, setConfigNetmask] = useState(DEFAULT_NETMASK)
+  const [configGateway, setConfigGateway] = useState(DEFAULT_GATEWAY)
   const [configDhcp, setConfigDhcp] = useState(false)
   const [identifyingMac, setIdentifyingMac] = useState<string | null>(null)
 
@@ -35,6 +89,8 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
   const handleSelect = (device: DeviceInfo) => {
     setSelectedDevice(device)
     setConfigIp(device.ip)
+    setConfigNetmask(DEFAULT_NETMASK)
+    setConfigGateway(DEFAULT_GATEWAY)
     setConfigDhcp(false)
   }
 
@@ -47,20 +103,30 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
   const handleConfigureDevice = async () => {
     if (!selectedDevice) return
 
+    if (!configDhcp) {
+      const validationError = validateStaticNetworkConfiguration(configIp, configNetmask, configGateway)
+      if (validationError) {
+        alert(validationError)
+        return
+      }
+    }
+
     try {
       const success = await window.electronAPI.configureDevice({
         mac: selectedDevice.mac,
         targetIp: selectedDevice.ip,
         dhcp: configDhcp,
-        newIp: configIp,
-        netmask: '255.255.255.0',
-        gateway: '0.0.0.0',
+        newIp: configDhcp ? '0.0.0.0' : configIp.trim(),
+        netmask: configDhcp ? '0.0.0.0' : configNetmask.trim(),
+        gateway: configDhcp ? '0.0.0.0' : configGateway.trim(),
         hostname: selectedDevice.hostname,
       })
 
       if (success) {
         alert('Configuration sent!')
         void handleScan()
+      } else {
+        alert('The generator rejected the network configuration or did not acknowledge it.')
       }
     } catch (_error) {
       alert('Error while sending the configuration.')
@@ -185,13 +251,27 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
                   </div>
 
                   {!configDhcp && (
-                    <div className='space-y-1'>
-                      <Label className='text-xs'>IP Address</Label>
+                    <div className='grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3'>
+                      <Label className='whitespace-nowrap text-xs'>IP Address</Label>
                       <InputWithRef
                         value={configIp}
                         onChange={(event) => setConfigIp(event.target.value)}
-                        className={INPUT_STYLES.default}
-                        placeholder='xxx.xxx.xxx.xxx'
+                        className={`${INPUT_STYLES.default} w-full`}
+                        placeholder='192.168.200.182'
+                      />
+                      <Label className='whitespace-nowrap text-xs'>Subnet Mask</Label>
+                      <InputWithRef
+                        value={configNetmask}
+                        onChange={(event) => setConfigNetmask(event.target.value)}
+                        className={`${INPUT_STYLES.default} w-full`}
+                        placeholder={DEFAULT_NETMASK}
+                      />
+                      <Label className='whitespace-nowrap text-xs'>Gateway</Label>
+                      <InputWithRef
+                        value={configGateway}
+                        onChange={(event) => setConfigGateway(event.target.value)}
+                        className={`${INPUT_STYLES.default} w-full`}
+                        placeholder={DEFAULT_GATEWAY}
                       />
                     </div>
                   )}
