@@ -1,7 +1,8 @@
 // import './splash-screen/index'
 
-import { contextBridge, ipcRenderer} from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
+import type { DeviceConfig } from '../../../types/discovery'
 import rendererProcessBridge from '../ipc/renderer'
 
 contextBridge.exposeInMainWorld('bridge', rendererProcessBridge)
@@ -16,5 +17,6 @@ declare global {
 
 contextBridge.exposeInMainWorld('electronAPI', {
   discoverDevices: () => ipcRenderer.invoke('device-discover'),
-  configureDevice: (config: any) => ipcRenderer.invoke('device-configure', config),
-});
+  configureDevice: (config: DeviceConfig) => ipcRenderer.invoke('device-configure', config),
+  identifyDevice: (mac: string) => ipcRenderer.invoke('device-identify', mac),
+})

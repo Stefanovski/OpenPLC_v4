@@ -1,9 +1,10 @@
-import os from 'os'
 import dgram from 'dgram'
 import { ipcMain } from 'electron'
+import os from 'os'
 
 const DISCOVER_PORT = 30303
 const DISCOVER_GUID = '5F90A4A4-D180-4682-B869-A02A6E6D1C75'
+const MAC_ADDRESS_PATTERN = /^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$/
 
 interface DeviceInfo {
   ip: string
@@ -23,145 +24,200 @@ interface ConfigureArgs {
   hostname: string
 }
 
+interface NetworkEndpoint {
+  address: string
+  broadcast: string
+  name: string
+}
+
+interface BoundSocket {
+  socket: dgram.Socket
+  endpoint: NetworkEndpoint
+}
+
 export class DiscoveryModule {
   constructor() {
     this.registerListeners()
   }
 
-  /**
-   * Registriert die IPC Handler, damit das Frontend sie aufrufen kann.
-   */
   private registerListeners() {
     ipcMain.handle('device-discover', this.handleDiscover.bind(this))
     ipcMain.handle('device-configure', this.handleConfigure.bind(this))
+    ipcMain.handle('device-identify', this.handleIdentify.bind(this))
   }
 
-  // Hilfsfunktion: Berechnet die Broadcast-Adresse aus IP und Subnetzmaske
   private getBroadcastAddress(ip: string, netmask: string): string {
-    const ipParts = ip.split('.').map(Number);
-    const maskParts = netmask.split('.').map(Number);
-
-    // Broadcast = IP | (~SubnetMask)
-    // Wir machen das Byte für Byte
-    const broadcastParts = ipParts.map((part, i) => {
-      return (part | (~maskParts[i] & 0xFF)) >>> 0;
-    });
-
-    return broadcastParts.join('.');
+    const ipParts = ip.split('.').map(Number)
+    const maskParts = netmask.split('.').map(Number)
+    return ipParts.map((part, index) => (part | (~maskParts[index] & 0xff)) >>> 0).join('.')
   }
 
-  /**
-   * Sucht nach Geräten im Netzwerk via UDP Broadcast
-   */
-  private async handleDiscover(): Promise<DeviceInfo[]> {
+  private getNetworkEndpoints(): NetworkEndpoint[] {
+    const endpoints: NetworkEndpoint[] = [{ address: '0.0.0.0', broadcast: '255.255.255.255', name: 'default' }]
+
+    Object.entries(os.networkInterfaces()).forEach(([name, interfaces]) => {
+      interfaces?.forEach((networkInterface) => {
+        const isIpv4 = networkInterface.family === 'IPv4' || (networkInterface.family as unknown) === 4
+        if (!isIpv4 || networkInterface.internal) return
+
+        endpoints.push({
+          address: networkInterface.address,
+          broadcast: this.getBroadcastAddress(networkInterface.address, networkInterface.netmask),
+          name,
+        })
+      })
+    })
+
+    return endpoints
+  }
+
+  private openBroadcastSocket(
+    endpoint: NetworkEndpoint,
+    onMessage: (message: Buffer, remoteInfo: dgram.RemoteInfo) => void,
+  ): Promise<BoundSocket | null> {
     return new Promise((resolve) => {
       const socket = dgram.createSocket('udp4')
-      const devices: DeviceInfo[] = []
-      const discoveredIps = new Set<string>()
+      let bindingComplete = false
 
-      // Fehlerbehandlung für den Socket
-      socket.on('error', (err) => {
-        console.error('[Discovery] Socket error:', err)
-        try { socket.close() } catch (e) {}
+      socket.on('message', onMessage)
+      socket.on('error', (error) => {
+        console.error(`[Discovery] Socket error on ${endpoint.name} (${endpoint.address}):`, error)
+        try {
+          socket.close()
+        } catch (_error) {
+          // Socket may already be closed after a bind or network error.
+        }
+        if (!bindingComplete) resolve(null)
       })
 
-      // Socket binden (Port 0 = zufälliger freier Port)
-      socket.bind(() => {
+      socket.bind(0, endpoint.address, () => {
+        bindingComplete = true
         socket.setBroadcast(true)
-        const message = Buffer.from(DISCOVER_GUID)
-
-        try {
-          // 1. Liste alle Netzwerk-Interfaces ab
-          const interfaces = os.networkInterfaces();
-
-          // 2. Iteriere über alle Interfaces
-          Object.keys(interfaces).forEach((ifaceName) => {
-            interfaces[ifaceName]?.forEach((iface) => {
-              // Nur IPv4 und keine Loopback-Adapter (127.0.0.1)
-              if (iface.family === 'IPv4' && !iface.internal) {
-                
-                // Berechne die spezifische Broadcast-Adresse für dieses Subnetz
-                // z.B. IP 192.168.1.50 / Mask 255.255.255.0 -> Broadcast 192.168.1.255
-                const broadcastAddr = this.getBroadcastAddress(iface.address, iface.netmask);
-                
-                console.log(`[Discovery] Sending to ${ifaceName} (${iface.address}) -> ${broadcastAddr}`);
-                
-                socket.send(message as any, 0, message.length, DISCOVER_PORT, broadcastAddr, (err) => {
-                  if (err) console.error(`[Discovery] Error sending to ${broadcastAddr}:`, err);
-                });
-              }
-            });
-          });
-
-          // Optional: Trotzdem noch einmal an global Broadcast senden (für Router, die das mögen)
-          socket.send(message as any, 0, message.length, DISCOVER_PORT, '255.255.255.255');
-
-        } catch (e) {
-          console.error('[Discovery] Send error:', e)
-        }
+        resolve({ socket, endpoint })
       })
-      // Antworten empfangen
-      socket.on('message', (msg, rinfo) => {
-        try {
-          const text = msg.toString()
-          // Format analog zu deinem Python-Script: hostname\r\nmac\r\nrevision\r\ninfo
-          const parts = text.split('\r\n')
-
-          if (parts.length >= 4 && !discoveredIps.has(rinfo.address)) {
-            discoveredIps.add(rinfo.address)
-            devices.push({
-              ip: rinfo.address,
-              hostname: parts[0].trim(),
-              mac: parts[1].trim(),
-              revision: parts[2].trim(),
-              info: parts[3].trim(),
-            })
-          }
-        } catch (e) {
-          console.error('[Discovery] Parse error:', e)
-        }
-      })
-
-      // Nach 2 Sekunden Timeout beenden wir die Suche
-      setTimeout(() => {
-        try { socket.close() } catch (e) {}
-        resolve(devices)
-      }, 2000)
     })
   }
 
-  /**
-   * Sendet die Konfiguration an ein spezifisches Gerät
-   */
+  private async openBroadcastSockets(
+    onMessage: (message: Buffer, remoteInfo: dgram.RemoteInfo) => void,
+  ): Promise<BoundSocket[]> {
+    const sockets = await Promise.all(
+      this.getNetworkEndpoints().map((endpoint) => this.openBroadcastSocket(endpoint, onMessage)),
+    )
+    return sockets.filter((socket): socket is BoundSocket => socket !== null)
+  }
+
+  private closeSockets(sockets: BoundSocket[]) {
+    sockets.forEach(({ socket }) => {
+      try {
+        socket.close()
+      } catch (_error) {
+        // Socket may already be closed after a network error.
+      }
+    })
+  }
+
+  private sendOnAllInterfaces(sockets: BoundSocket[], payload: Buffer, targetIp?: string) {
+    sockets.forEach(({ socket, endpoint }) => {
+      const destinations = new Set([endpoint.broadcast, '255.255.255.255'])
+      if (targetIp) destinations.add(targetIp)
+
+      destinations.forEach((destination) => {
+        socket.send(payload, DISCOVER_PORT, destination, (error) => {
+          if (error) {
+            console.error(`[Discovery] Send error on ${endpoint.name} (${endpoint.address}) to ${destination}:`, error)
+          }
+        })
+      })
+    })
+  }
+
+  private wait(durationMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, durationMs))
+  }
+
+  private async handleDiscover(): Promise<DeviceInfo[]> {
+    const devices = new Map<string, DeviceInfo>()
+    const onMessage = (message: Buffer, remoteInfo: dgram.RemoteInfo) => {
+      try {
+        const parts = message.toString().split('\r\n')
+        if (parts.length < 4 || parts[0].startsWith('SETIPCONFIG') || parts[0].startsWith('IDENTIFY')) return
+
+        const mac = parts[1].trim().toUpperCase()
+        if (!MAC_ADDRESS_PATTERN.test(mac)) return
+
+        devices.set(mac, {
+          ip: remoteInfo.address,
+          hostname: parts[0].trim(),
+          mac,
+          revision: parts[2].trim(),
+          info: parts[3].trim(),
+        })
+      } catch (error) {
+        console.error('[Discovery] Parse error:', error)
+      }
+    }
+
+    const sockets = await this.openBroadcastSockets(onMessage)
+    if (sockets.length === 0) return []
+
+    this.sendOnAllInterfaces(sockets, Buffer.from(DISCOVER_GUID))
+    await this.wait(2000)
+    this.closeSockets(sockets)
+    return Array.from(devices.values())
+  }
+
+  private async sendAddressedCommand(
+    payload: Buffer,
+    targetIp: string | undefined,
+    expectedReply: (message: string) => boolean,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    let acknowledged = false
+    const onMessage = (message: Buffer) => {
+      if (expectedReply(message.toString())) acknowledged = true
+    }
+
+    const sockets = await this.openBroadcastSockets(onMessage)
+    if (sockets.length === 0) return false
+
+    this.sendOnAllInterfaces(sockets, payload, targetIp)
+    const deadline = Date.now() + timeoutMs
+    while (!acknowledged && Date.now() < deadline) {
+      await this.wait(50)
+    }
+
+    this.closeSockets(sockets)
+    return acknowledged
+  }
+
   private async handleConfigure(_event: Electron.IpcMainInvokeEvent, args: ConfigureArgs): Promise<boolean> {
-    const socket = dgram.createSocket('udp4')
-    
-    // Protokoll exakt wie im Python Script
     const configString =
       `SETIPCONFIG\r\n${args.mac}\r\n` +
       `DHCP=${args.dhcp ? 'ON' : 'OFF'};IP=${args.newIp};NMASK=${args.netmask};GWADD=${args.gateway};HOSTNAME=${args.hostname};`
-    
-    const payload = Buffer.from(configString)
 
-    return new Promise((resolve) => {
-      socket.bind(() => {
-        socket.setBroadcast(true)
-        try {
-          // 1. Broadcast senden (um sicherzugehen)
-          socket.send(payload as any, 0, payload.length, DISCOVER_PORT, '255.255.255.255')
-          // 2. Unicast an die alte IP senden (falls Broadcasts gefiltert werden)
-          socket.send(payload as any, 0, payload.length, DISCOVER_PORT, args.targetIp)
-        } catch (e) {
-          console.error('[Discovery] Config send error:', e)
-        }
-      })
+    return this.sendAddressedCommand(
+      Buffer.from(configString),
+      args.targetIp,
+      (message) => message.startsWith('SETIPCONFIG-ACK'),
+      2000,
+    )
+  }
 
-      // Wir warten hier nicht auf das ACK (um es einfach zu halten),
-      // sondern schließen nach 1 Sekunde und melden Erfolg.
-      setTimeout(() => {
-        try { socket.close() } catch (e) {}
-        resolve(true)
-      }, 1000)
-    })
+  private async handleIdentify(_event: Electron.IpcMainInvokeEvent, mac: string): Promise<boolean> {
+    const normalizedMac = mac.trim().toUpperCase()
+    if (!MAC_ADDRESS_PATTERN.test(normalizedMac)) return false
+
+    const payload = Buffer.from(`IDENTIFY\r\n${normalizedMac}\r\n`)
+
+    return this.sendAddressedCommand(
+      payload,
+      undefined,
+      (message) => {
+        const parts = message.split('\r\n')
+        return parts[0] === 'IDENTIFY-ACK' && parts[1]?.trim().toUpperCase() === normalizedMac
+      },
+      1500,
+    )
   }
 }

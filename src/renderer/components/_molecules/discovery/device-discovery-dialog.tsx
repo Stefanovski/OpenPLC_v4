@@ -1,4 +1,5 @@
 import { INPUT_STYLES } from '@data/constants/device-styles'
+import { EyeOpenIcon } from '@radix-ui/react-icons'
 import { InputWithRef, Label } from '@root/renderer/components/_atoms'
 import { Modal, ModalContent, ModalTitle, ModalTrigger } from '@root/renderer/components/_molecules/modal'
 import type { DeviceInfo } from '@root/types/discovery'
@@ -15,6 +16,7 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null)
   const [configIp, setConfigIp] = useState('')
   const [configDhcp, setConfigDhcp] = useState(false)
+  const [identifyingMac, setIdentifyingMac] = useState<string | null>(null)
 
   const handleScan = async () => {
     setScanning(true)
@@ -65,6 +67,20 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
     }
   }
 
+  const handleIdentifyDevice = async (device: DeviceInfo) => {
+    setIdentifyingMac(device.mac)
+    try {
+      const success = await window.electronAPI.identifyDevice(device.mac)
+      if (!success) {
+        alert('The generator did not acknowledge the identification request.')
+      }
+    } catch (_error) {
+      alert('Error while identifying the generator.')
+    } finally {
+      setIdentifyingMac(null)
+    }
+  }
+
   return (
     <Modal open={open} onOpenChange={setOpen}>
       <ModalTrigger asChild>
@@ -107,22 +123,40 @@ export const DeviceDiscoveryDialog = ({ onSelectIp }: DiscoveryDialogProps) => {
               )}
 
               {devices.map((device) => (
-                <button
-                  type='button'
+                <div
                   key={device.mac}
-                  onClick={() => handleSelect(device)}
-                  className={`w-full cursor-pointer rounded-md border p-3 text-left text-sm transition-colors ${
+                  className={`flex w-full items-stretch rounded-md border text-sm transition-colors ${
                     selectedDevice?.mac === device.mac
                       ? 'bg-brand/10 border-brand'
                       : 'border-transparent hover:bg-neutral-100 dark:hover:bg-neutral-850'
                   }`}
                 >
-                  <div className='font-bold'>{device.hostname}</div>
-                  <div className='mt-1 flex justify-between text-xs text-neutral-500 dark:text-neutral-400'>
-                    <span>{device.ip}</span>
-                    <span className='font-mono'>{device.mac}</span>
-                  </div>
-                </button>
+                  <button
+                    type='button'
+                    onClick={() => handleSelect(device)}
+                    className='min-w-0 flex-1 cursor-pointer p-3 text-left'
+                  >
+                    <div className='font-bold'>{device.hostname}</div>
+                    <div className='mt-1 flex justify-between gap-2 text-xs text-neutral-500 dark:text-neutral-400'>
+                      <span>{device.ip}</span>
+                      <span className='font-mono'>{device.mac}</span>
+                    </div>
+                  </button>
+                  <button
+                    type='button'
+                    title='Identify generator (blinks for 30 seconds)'
+                    aria-label={`Identify ${device.hostname}`}
+                    disabled={identifyingMac !== null}
+                    onClick={() => void handleIdentifyDevice(device)}
+                    className={`m-2 flex w-9 shrink-0 items-center justify-center rounded border transition-colors disabled:cursor-wait disabled:opacity-60 ${
+                      identifyingMac === device.mac
+                        ? 'border-brand bg-brand text-white'
+                        : 'border-neutral-300 text-neutral-500 hover:border-brand hover:text-brand dark:border-neutral-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    <EyeOpenIcon className={identifyingMac === device.mac ? 'animate-pulse' : ''} />
+                  </button>
+                </div>
               ))}
             </div>
           </div>
