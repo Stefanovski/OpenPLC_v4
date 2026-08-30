@@ -11,7 +11,7 @@ import {
 import { matchVariableWithDebugEntry, parseDebugFile } from '@root/renderer/utils/parse-debug-file'
 import type { DebugTreeNode, FbInstanceInfo } from '@root/types/debugger'
 import { PLCPou, PLCProjectData } from '@root/types/PLC/open-plc'
-import { BufferToStringArray, cn, isOpenPLCRuntimeTarget } from '@root/utils'
+import { BufferToStringArray, cn, isEurosonicTarget, isOpenPLCRuntimeTarget } from '@root/utils'
 import { addCppLocalVariables } from '@root/utils/cpp/addCppLocalVariables'
 import { generateSTCode as generateCppSTCode } from '@root/utils/cpp/generateSTCode'
 import { validateCppCode } from '@root/utils/cpp/validateCppCode'
@@ -450,7 +450,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       const projectPath = project.meta.path
       const currentBoardInfo = availableBoards.get(boardTarget)
       const isRuntimeTarget = isOpenPLCRuntimeTarget(currentBoardInfo)
-      const isRuntimeV4 = boardTarget === 'OpenPLC Runtime v4'
+      const usesWebSocketDebugTransport = currentBoardInfo?.debugTransport === 'websocket'
 
       let targetIpAddress: string | undefined
       let connectionType: 'tcp' | 'rtu' | 'websocket' = 'tcp'
@@ -476,7 +476,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
         targetIpAddress = runtimeIpAddress
 
-        if (isRuntimeV4) {
+        if (usesWebSocketDebugTransport) {
           connectionType = 'websocket'
           jwtToken = useOpenPLCStore.getState().runtimeConnection.jwtToken || undefined
           if (!jwtToken) {
@@ -717,7 +717,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         })
       }
 
-      const useIecStatementDebugger = boardTarget === 'Eurosonic_Gen2' && connectionType === 'tcp' && !isRuntimeTarget
+      const useIecStatementDebugger =
+        isEurosonicTarget(currentBoardInfo) && connectionType === 'tcp' && !isRuntimeTarget
 
       let debugCompilationSucceeded = false
       window.bridge.runDebugCompilation(
@@ -805,7 +806,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     hasFreshDebugCompilation = false,
   ) => {
     const { consoleActions, workspaceActions, runtimeConnection, deviceActions } = useOpenPLCStore.getState()
-    const useIecStatementDebugger = boardTarget === 'Eurosonic_Gen2' && connectionType === 'tcp' && !isRuntimeTarget
+    const useIecStatementDebugger =
+      isEurosonicTarget(availableBoards.get(boardTarget)) && connectionType === 'tcp' && !isRuntimeTarget
 
     const uploadDebugProgramAndRetry = async (reuseDebugCompilation = false) => {
       const boardCore = availableBoards.get(boardTarget)?.core || null

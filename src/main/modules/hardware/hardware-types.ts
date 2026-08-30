@@ -17,8 +17,10 @@ const BoardInfoSchema = z.object({
   default_aout: z.string(),
   default_din: z.string(),
   default_dout: z.string(),
+  debug_transport: z.enum(['modbus', 'websocket']).optional(),
   define: z.string().or(z.array(z.string())).optional(),
   extra_libraries: z.array(z.string()).optional(),
+  hidden: z.boolean().optional(),
   platform: z.string(),
   preview: z.string(),
   source: z.string(),
@@ -56,6 +58,8 @@ const availableBoardsSchema = z.map(
       defaultDout: z.array(z.string()).optional(),
     }),
     ...BoardInfoSchema.pick({ compiler: true, core: true, preview: true, specs: true }),
+    debugTransport: z.enum(['modbus', 'websocket']).optional(),
+    hidden: z.boolean().optional(),
   }),
 )
 
@@ -80,6 +84,8 @@ type AvailableBoards = Map<
     }
     // Optional properties
     coreVersion?: string
+    debugTransport?: 'modbus' | 'websocket'
+    hidden?: boolean
     pins: {
       defaultAin?: string[]
       defaultAout?: string[]

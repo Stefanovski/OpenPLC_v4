@@ -18,7 +18,7 @@ import { app, nativeTheme, shell } from 'electron'
 import { readFile } from 'fs/promises'
 import type { IncomingMessage } from 'http'
 import https from 'https'
-import { isAbsolute, join, resolve } from 'path'
+import { join } from 'path'
 import { platform } from 'process'
 
 import { ProjectState } from '../../../renderer/store/slices'
@@ -28,6 +28,7 @@ import { logger } from '../../services'
 import { IecDebugState, ModbusTcpClient } from '../modbus/modbus-client'
 import { ModbusRtuClient } from '../modbus/modbus-rtu-client'
 import { WebSocketDebugClient } from '../websocket/websocket-debug-client'
+import { resolveIecDebugMetadataPath } from './iec-debug-metadata-path'
 
 type IDataToWrite = {
   projectPath: string
@@ -1172,15 +1173,8 @@ class MainProcessBridge implements MainIpcModule {
     boardTarget: string,
   ): Promise<{ success: boolean; data?: IecDebugMetadata; error?: string }> => {
     try {
-      if (
-        boardTarget !== 'Eurosonic_Gen2' ||
-        isAbsolute(boardTarget) ||
-        boardTarget.includes('..') ||
-        /[\\/]/.test(boardTarget)
-      ) {
-        return { success: false, error: 'Invalid board target' }
-      }
-      const metadataPath = resolve(projectPath, 'build', boardTarget, 'src', 'program.debug.json')
+      const metadataPath = resolveIecDebugMetadataPath(projectPath, boardTarget)
+      if (!metadataPath) return { success: false, error: 'Invalid board target' }
       const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as IecDebugMetadata
       if (
         metadata.format !== 'eurosonic-plc-debug' ||

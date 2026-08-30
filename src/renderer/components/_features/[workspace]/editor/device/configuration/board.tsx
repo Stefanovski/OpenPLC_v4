@@ -305,23 +305,25 @@ const Board = memo(function () {
                 side='bottom'
                 viewportRef={deviceSelectRef}
               >
-                {Array.from(availableBoards.entries()).map(([board, data]) => {
-                  const formattedBoard = `${board}${data.coreVersion ? ` [${data.coreVersion}]` : ''}`
-                  return (
-                    <SelectItem
-                      key={board}
-                      className={cn(
-                        'data-[state=checked]:[&:not(:hover)]:bg-neutral-100 data-[state=checked]:dark:[&:not(:hover)]:bg-neutral-900',
-                        'flex w-full cursor-pointer items-center px-2 py-[9px] outline-none hover:bg-neutral-200 dark:hover:bg-neutral-850',
-                      )}
-                      value={formattedBoard}
-                    >
-                      <span className='flex items-center gap-2 font-caption text-cp-sm font-medium text-neutral-850 dark:text-neutral-300'>
-                        {formattedBoard}
-                      </span>
-                    </SelectItem>
-                  )
-                })}
+                {Array.from(availableBoards.entries())
+                  .filter(([, data]) => !data.hidden)
+                  .map(([board, data]) => {
+                    const formattedBoard = `${board}${data.coreVersion ? ` [${data.coreVersion}]` : ''}`
+                    return (
+                      <SelectItem
+                        key={board}
+                        className={cn(
+                          'data-[state=checked]:[&:not(:hover)]:bg-neutral-100 data-[state=checked]:dark:[&:not(:hover)]:bg-neutral-900',
+                          'flex w-full cursor-pointer items-center px-2 py-[9px] outline-none hover:bg-neutral-200 dark:hover:bg-neutral-850',
+                        )}
+                        value={formattedBoard}
+                      >
+                        <span className='flex items-center gap-2 font-caption text-cp-sm font-medium text-neutral-850 dark:text-neutral-300'>
+                          {formattedBoard}
+                        </span>
+                      </SelectItem>
+                    )
+                  })}
               </SelectContent>
             </Select>
           </div>
@@ -425,7 +427,7 @@ const Board = memo(function () {
               >
                 <RefreshIcon size='sm' className={isPressed ? 'spin-refresh' : ''} />
               </button>*/}
-            </div> 
+            </div>
           )}
           <div id='board-specs' className='flex w-full flex-col items-start justify-start gap-4'>
             <Label id='board-specs-label' className='w-fit text-xs text-neutral-950 dark:text-white'>
