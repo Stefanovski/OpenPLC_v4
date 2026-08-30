@@ -13,14 +13,16 @@ import {
 import { useOpenPLCStore } from '@root/renderer/store'
 import { MAC_ADDRESS_REGEX } from '@root/types/PLC/devices'
 import { cn } from '@root/utils'
-import { ComponentPropsWithoutRef, memo } from 'react'
+import { ComponentPropsWithoutRef, memo, useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
+import { EurosonicNetworkTarget } from './eurosonic-network-target'
 import { StaticHostConfigurationComponent } from './static-host'
 
 type ModbusTCPComponentProps = ComponentPropsWithoutRef<'div'> & {
   isModbusTCPEnabled: boolean
+  isEurosonicBoard?: boolean
 }
 
 const tcpConfigSchema = z.object({
@@ -31,7 +33,11 @@ const tcpConfigSchema = z.object({
 
 type TCPConfigSchema = z.infer<typeof tcpConfigSchema>
 
-const ModbusTCPComponent = memo(function ModbusTCP({ isModbusTCPEnabled, ...props }: ModbusTCPComponentProps) {
+const ModbusTCPComponent = memo(function ModbusTCP({
+  isModbusTCPEnabled,
+  isEurosonicBoard = false,
+  ...props
+}: ModbusTCPComponentProps) {
   const {
     control,
     formState: { errors },
@@ -54,6 +60,10 @@ const ModbusTCPComponent = memo(function ModbusTCP({ isModbusTCPEnabled, ...prop
   const availableTCPInterfaces = tcpSelectors.useAvailableTCPInterfaces()
   const setTCPConfig = tcpSelectors.useSetTCPConfig()
   const setWifiConfig = tcpSelectors.useSetWifiConfig()
+
+  useEffect(() => {
+    if (isEurosonicBoard && enabledDHCP) setCommunicationPreferences({ enableDHCP: false })
+  }, [enabledDHCP, isEurosonicBoard, setCommunicationPreferences])
 
   const handleEnableDHCPHost = () => {
     setCommunicationPreferences({ enableDHCP: !enabledDHCP })
@@ -194,7 +204,7 @@ const ModbusTCPComponent = memo(function ModbusTCP({ isModbusTCPEnabled, ...prop
           )}
         </div>
       </div>
-      {isModbusTCPEnabled && (
+      {isModbusTCPEnabled && !isEurosonicBoard && (
         <div id='enable-dhcp-host-container' className='flex h-fit w-full items-center justify-start gap-1'>
           <Checkbox
             id='enable-dhcp-host-checkbox'
@@ -210,7 +220,8 @@ const ModbusTCPComponent = memo(function ModbusTCP({ isModbusTCPEnabled, ...prop
           </Label>
         </div>
       )}
-      {!enabledDHCP && isModbusTCPEnabled && <StaticHostConfigurationComponent />}
+      {!isEurosonicBoard && !enabledDHCP && isModbusTCPEnabled && <StaticHostConfigurationComponent />}
+      {isEurosonicBoard && isModbusTCPEnabled && <EurosonicNetworkTarget />}
     </>
   )
 })

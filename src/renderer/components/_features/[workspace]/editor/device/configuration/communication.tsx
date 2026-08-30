@@ -7,6 +7,7 @@ import { useEffect, useMemo } from 'react'
 
 import { ModbusRTUComponent } from './components/modbus-rtu'
 import { ModbusTCPComponent } from './components/modbus-tcp'
+import { TelnetTerminal } from './components/telnet-terminal'
 
 const Communication = () => {
   const {
@@ -21,6 +22,12 @@ const Communication = () => {
 
   const currentBoardInfo = availableBoards.get(deviceBoard)
   const isRuntimeTarget = isOpenPLCRuntimeTarget(currentBoardInfo)
+  const isEurosonicBoard = currentBoardInfo?.compiler === 'eurosonic-cli'
+  const telnetIpAddress = useOpenPLCStore((state) => {
+    const configuredIp =
+      state.deviceDefinitions.configuration.communicationConfiguration.modbusTCP.tcpStaticHostConfiguration.ipAddress
+    return configuredIp || ''
+  })
 
   const isRTUEnabled = communicationPreferences.enabledRTU
   const isTCPEnabled = communicationPreferences.enabledTCP
@@ -71,7 +78,7 @@ const Communication = () => {
         <ModbusRTUComponent isModbusRTUEnabled={memoizedIsModbusRTUEnabled} />
       </div>
       <hr id='container-split' className='h-[1px] w-full self-stretch bg-brand-light' />
-      <div id='modbus-tcp-container' className='flex h-full w-full flex-col gap-4'>
+      <div id='modbus-tcp-container' className='flex h-fit w-full flex-col gap-4'>
         <div
           id='enable-modbus-tcp'
           className={cn('flex select-none items-center gap-2', !isTCPEnabled && 'opacity-50')}
@@ -90,8 +97,17 @@ const Communication = () => {
             Enable Modbus TCP
           </Label>
         </div>
-        <ModbusTCPComponent isModbusTCPEnabled={memoizedIsModbusTCPEnabled} />
+        <ModbusTCPComponent
+          isModbusTCPEnabled={memoizedIsModbusTCPEnabled}
+          isEurosonicBoard={isEurosonicBoard}
+        />
       </div>
+      {isEurosonicBoard && (
+        <>
+          <hr id='terminal-container-split' className='h-[1px] w-full self-stretch bg-brand-light' />
+          <TelnetTerminal host={telnetIpAddress} />
+        </>
+      )}
     </DeviceEditorSlot>
   )
 }

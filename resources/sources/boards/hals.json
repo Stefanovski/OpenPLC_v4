@@ -1,29 +1,40 @@
 {
-  "Eurosonic_Gen2": {
+  "Eurosonic_Gen2_8KW": {
     "compiler": "eurosonic-cli",
     "core": "STMicroelectronics:stm32",
     "default_ain": "",
     "default_aout": "",
     "default_din": "",
-    "default_dout": "14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53",
+    "default_dout": "",
     "platform": "STMicroelectronics:stm32:Eurosonic_Gen2",
-    "preview": "eurosonic_gen2.png",
+    "preview": "eurosonic_gen2_8KW.png",
     "source": "",
     "specs": {
       "CPU": "STM32H747XI",
-      "RAM": "2 MB",
-      "Flash": "512 KB",
-      "WiFi": "No",
-      "Bluetooth": "No",
+      "SDRAM": "32 MB",
+      "Flash": "2 MB",
+      "QSPI": "64 MB",
+      "SD support": "Yes",
       "Ethernet": "Yes"
     }
   },
-  "OpenPLC Runtime v4": {
-    "compiler": "openplc-compiler",
-    "preview": "generic.png"
-  },
-  "OpenPLC Runtime v3": {
-    "compiler": "openplc-compiler",
-    "preview": "generic.png"
+  "Agramkow_Gen2_3KW": {
+    "compiler": "eurosonic-cli",
+    "core": "STMicroelectronics:stm32",
+    "default_ain": "",
+    "default_aout": "",
+    "default_din": "",
+    "default_dout": "",
+    "platform": "STMicroelectronics:stm32:Eurosonic_Gen2",
+    "preview": "agramkow_gen2_3KW.png",
+    "source": "",
+    "specs": {
+      "CPU": "STM32H747XI",
+      "SDRAM": "32 MB",
+      "Flash": "2 MB",
+      "QSPI": "64 MB",
+      "SD support": "Yes",
+      "Ethernet": "Yes"
+    }
   }
 }

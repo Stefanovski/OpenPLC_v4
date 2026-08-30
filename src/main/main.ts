@@ -22,6 +22,7 @@ import { DiscoveryModule } from './modules/discover/discovery' // <--- NEU
 import { HardwareModule } from './modules/hardware'
 import MainProcessBridge from './modules/ipc/main'
 import { store } from './modules/store'
+import { TelnetModule } from './modules/telnet/telnet'
 import { PouService, ProjectService, UserService } from './services'
 import { resolveHtmlPath } from './utils'
 
@@ -303,6 +304,7 @@ const createMainWindow = async () => {
   const hardwareModule = new HardwareModule()
 
   new DiscoveryModule()
+  new TelnetModule()
 
   const mainIpcModule = new MainProcessBridge({
     mainWindow,
