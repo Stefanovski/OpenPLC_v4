@@ -43,6 +43,8 @@ const availableBoardInfo = z.object({
     Ethernet: z.string(),
   }),
   coreVersion: z.string().optional(),
+  debugTransport: z.enum(['modbus', 'websocket']).optional(),
+  hidden: z.boolean().optional(),
   pins: z.object({
     defaultAin: z.array(z.string()).optional(), // Default analog input pins
     defaultAout: z.array(z.string()).optional(), // Default analog output pins

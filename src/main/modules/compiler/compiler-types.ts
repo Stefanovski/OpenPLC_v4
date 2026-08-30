@@ -16,7 +16,7 @@ const ArduinoCoreControlSchema = z.array(z.record(z.string(), z.string()))
 type ArduinoCoreControl = z.infer<typeof ArduinoCoreControlSchema>
 
 const BoardInfoSchema = z.object({
-  compiler: z.enum(['arduino-cli', 'openplc-compiler']),
+  compiler: z.enum(['arduino-cli', 'openplc-compiler', 'eurosonic-cli']),
   core: z.string(),
   default_ain: z.string(),
   default_aout: z.string(),
@@ -36,6 +36,8 @@ const BoardInfoSchema = z.object({
   c_flags: z.array(z.string()).optional(),
   cxx_flags: z.array(z.string()).optional(),
   arch: z.string().optional(),
+  debug_transport: z.enum(['modbus', 'websocket']).optional(),
+  hidden: z.boolean().optional(),
 })
 
 type BoardInfo = z.infer<typeof BoardInfoSchema>

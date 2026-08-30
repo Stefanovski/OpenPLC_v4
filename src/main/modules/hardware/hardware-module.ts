@@ -157,6 +157,8 @@ class HardwareModule {
           preview: boardData.preview,
           specs: boardData.specs,
           coreVersion: coreVersion ?? undefined,
+          debugTransport: boardData.debug_transport,
+          hidden: boardData.hidden,
           pins: {
             defaultAin:
               boardData.default_ain

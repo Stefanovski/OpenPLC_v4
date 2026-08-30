@@ -36,5 +36,35 @@
       "SD support": "Yes",
       "Ethernet": "Yes"
     }
+  },
+  "Eurosonic_Gen2": {
+    "compiler": "eurosonic-cli",
+    "core": "STMicroelectronics:stm32",
+    "default_ain": "",
+    "default_aout": "",
+    "default_din": "",
+    "default_dout": "14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53",
+    "hidden": true,
+    "platform": "STMicroelectronics:stm32:Eurosonic_Gen2",
+    "preview": "eurosonic_gen2.png",
+    "source": "",
+    "specs": {
+      "CPU": "STM32H747XI",
+      "RAM": "2 MB",
+      "Flash": "512 KB",
+      "WiFi": "No",
+      "Bluetooth": "No",
+      "Ethernet": "Yes"
+    }
+  },
+  "OpenPLC Runtime v4": {
+    "compiler": "openplc-compiler",
+    "debug_transport": "websocket",
+    "preview": "generic.png"
+  },
+  "OpenPLC Runtime v3": {
+    "compiler": "openplc-compiler",
+    "debug_transport": "modbus",
+    "preview": "generic.png"
   }
 }

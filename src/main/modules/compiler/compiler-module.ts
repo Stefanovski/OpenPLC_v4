@@ -13,7 +13,7 @@ import { promisify } from 'node:util'
 import { CreateXMLFile } from '@root/main/utils'
 import { ProjectState } from '@root/renderer/store/slices'
 import type { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
-import { XmlGenerator } from '@root/utils'
+import { isEurosonicCompiler, XmlGenerator } from '@root/utils'
 import { type CppPouData as CppPouDataCode, generateCBlocksCode } from '@root/utils/cpp/generateCBlocksCode'
 import { type CppPouData as CppPouDataHeader, generateCBlocksHeader } from '@root/utils/cpp/generateCBlocksHeader'
 import { findEmptyFbdVariables } from '@root/utils/PLC/validate-empty-fbd-variables'
@@ -115,12 +115,13 @@ class CompilerModule {
     if (!existsSync(binaryPath)) throw new Error(`Failed to find binary file at: ${binaryPath}`)
 
     const binarySize = statSync(binaryPath).size
-    if (boardTarget !== 'Eurosonic_Gen2') return binarySize
+    const boardCompiler = await this.#getBoardRuntime(boardTarget)
+    if (!isEurosonicCompiler(boardCompiler)) return binarySize
 
     const validation = validateEurosonicPlcBinary(await readFile(binaryPath))
     if (!validation.valid) {
       throw new Error(
-        `OPEN_PLC.bin is not suitable for Eurosonic_Gen2: ${validation.reason}. ` +
+        `OPEN_PLC.bin is not suitable for the selected Eurosonic target: ${validation.reason}. ` +
           `Maximum file size is ${EUROSONIC_PLC_FLASH_SIZE_BYTES} bytes including the ` +
           `${EUROSONIC_PLC_HEADER_SIZE_BYTES}-byte header.`,
       )
@@ -438,7 +439,7 @@ class CompilerModule {
   // }
 
   // STN: Copy static files needed for eurosonic
-  async copyStaticFiles(compilationPath: string, boardTarget: string): Promise<MethodsResult<string>> {
+  async copyStaticFiles(compilationPath: string, boardCompiler: string): Promise<MethodsResult<string>> {
     let result: MethodsResult<string> = { success: false }
     let filesToCopy: Promise<void>[] = []
 
@@ -448,7 +449,7 @@ class CompilerModule {
     const baseTargetFolderPath = compilationPath
     const sourceTargetFolderPath = join(compilationPath, 'src')
 
-    if (boardTarget !== 'openplc-compiler') {
+    if (boardCompiler !== 'openplc-compiler') {
       filesToCopy = [
         cp(staticEurosonicFilesPath, baseTargetFolderPath, { recursive: true }),
         cp(staticMatIECLibraryFilesPath, join(sourceTargetFolderPath, 'lib'), { recursive: true }),
@@ -2393,9 +2394,8 @@ class CompilerModule {
       boolean?,
     ]
 
-    const generateIecDebug = requestedIecDebug && boardTarget === 'Eurosonic_Gen2'
-
     const boardRuntime = await this.#getBoardRuntime(boardTarget) // Get the board runtime from the hals.json file
+    const generateIecDebug = requestedIecDebug && isEurosonicCompiler(boardRuntime)
 
     const halsContent = await CompilerModule.readJSONFile<HalsFile>(this.halsFilePath)
 
@@ -2679,7 +2679,7 @@ class CompilerModule {
     // Step 11: Execute build.bat and stream output
     try {
       // Nutzung der existierenden Variable compilationPath
-      // compilationPath = .../ProjektOrdner/build/Eurosonic_Gen2
+      // compilationPath = .../ProjektOrdner/build/<selected board target>
       const batFilePath = join(compilationPath, 'build.bat')
 
       _mainProcessPort.postMessage({ logLevel: 'info', message: `Executing build script: ${batFilePath}` })
@@ -2736,7 +2736,7 @@ class CompilerModule {
       return
     }
 
-    if (boardTarget === 'Eurosonic_Gen2') {
+    if (isEurosonicCompiler(boardRuntime)) {
       const binaryPath = join(compilationPath, 'build', 'output', 'OPEN_PLC.bin')
       try {
         await this.validateBinaryForBoard(boardTarget, binaryPath, (data, logLevel) => {
@@ -2847,9 +2847,8 @@ class CompilerModule {
       ProjectState['data'],
       boolean?,
     ]
-    const generateIecDebug = requestedIecDebug && boardTarget === 'Eurosonic_Gen2'
-
     const boardRuntime = await this.#getBoardRuntime(boardTarget)
+    const generateIecDebug = requestedIecDebug && isEurosonicCompiler(boardRuntime)
     const normalizedProjectPath = projectPath.replace('project.json', '')
     const compilationPath = join(normalizedProjectPath, 'build', boardTarget)
     const sourceTargetFolderPath = join(compilationPath, 'src')

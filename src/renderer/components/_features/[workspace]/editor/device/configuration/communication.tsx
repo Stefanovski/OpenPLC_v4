@@ -2,7 +2,7 @@ import { communicationSelectors } from '@hooks/use-store-selectors'
 import { Checkbox, Label } from '@root/renderer/components/_atoms'
 import { DeviceEditorSlot } from '@root/renderer/components/_templates/[editors]'
 import { useOpenPLCStore } from '@root/renderer/store'
-import { cn, isOpenPLCRuntimeTarget } from '@root/utils'
+import { cn, isEurosonicTarget, isOpenPLCRuntimeTarget } from '@root/utils'
 import { useEffect, useMemo } from 'react'
 
 import { ModbusRTUComponent } from './components/modbus-rtu'
@@ -22,7 +22,7 @@ const Communication = () => {
 
   const currentBoardInfo = availableBoards.get(deviceBoard)
   const isRuntimeTarget = isOpenPLCRuntimeTarget(currentBoardInfo)
-  const isEurosonicBoard = currentBoardInfo?.compiler === 'eurosonic-cli'
+  const isEurosonicBoard = isEurosonicTarget(currentBoardInfo)
   const telnetIpAddress = useOpenPLCStore((state) => {
     const configuredIp =
       state.deviceDefinitions.configuration.communicationConfiguration.modbusTCP.tcpStaticHostConfiguration.ipAddress
@@ -97,10 +97,7 @@ const Communication = () => {
             Enable Modbus TCP
           </Label>
         </div>
-        <ModbusTCPComponent
-          isModbusTCPEnabled={memoizedIsModbusTCPEnabled}
-          isEurosonicBoard={isEurosonicBoard}
-        />
+        <ModbusTCPComponent isModbusTCPEnabled={memoizedIsModbusTCPEnabled} isEurosonicBoard={isEurosonicBoard} />
       </div>
       {isEurosonicBoard && (
         <>
