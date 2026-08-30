@@ -9,7 +9,7 @@ if errorlevel 1 exit /b 1
 
 echo CMake and Toolchain added to PATH temporarily.
 
-rmdir /S /Q build
+if exist build rmdir /S /Q build
 mkdir build
 
 cmake -G "Ninja" -B build -DCMAKE_TOOLCHAIN_FILE=toolchain.cmake -DCMAKE_BUILD_TYPE=Debug . 
