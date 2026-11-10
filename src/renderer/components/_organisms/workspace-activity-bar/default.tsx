@@ -13,6 +13,7 @@ import type { DebugTreeNode, FbInstanceInfo } from '@root/types/debugger'
 import { PLCPou, PLCProjectData } from '@root/types/PLC/open-plc'
 import { BufferToStringArray, cn, isEurosonicTarget, isOpenPLCRuntimeTarget } from '@root/utils'
 import { addCppLocalVariables } from '@root/utils/cpp/addCppLocalVariables'
+import { generateEurosonicCppST, validateEurosonicCpp } from '@root/utils/cpp/eurosonic'
 import { generateSTCode as generateCppSTCode } from '@root/utils/cpp/generateSTCode'
 import { validateCppCode } from '@root/utils/cpp/validateCppCode'
 
@@ -242,7 +243,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       let validationFailed = false
       for (const pou of cppPous) {
         const code = pou.data.body.language === 'cpp' ? (pou.data.body as { value: string }).value : ''
-        const validation = validateCppCode(code)
+        const validation = isEurosonicTarget(availableBoards.get(deviceDefinitions.configuration.deviceBoard))
+          ? validateEurosonicCpp({ name: pou.data.name, code, variables: pou.data.variables }, pou.type)
+          : validateCppCode(code)
         if (!validation.valid) {
           addLog({
             id: crypto.randomUUID(),
@@ -268,10 +271,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
       processedProjectData.pous = processedProjectData.pous.map((pou: PLCPou) => {
         if (pou.data.body.language === 'cpp') {
-          const stCode = generateCppSTCode({
-            pouName: pou.data.name,
-            allVariables: pou.data.variables,
-          })
+          const stCode = isEurosonicTarget(availableBoards.get(deviceDefinitions.configuration.deviceBoard))
+            ? generateEurosonicCppST(pou.data.name, pou.data.variables, pou.data.body.value)
+            : generateCppSTCode({
+                pouName: pou.data.name,
+                allVariables: pou.data.variables,
+              })
 
           pou.data.body = {
             language: 'st',
@@ -668,7 +673,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         let validationFailed = false
         for (const pou of cppPous) {
           const code = pou.data.body.language === 'cpp' ? (pou.data.body as { value: string }).value : ''
-          const validation = validateCppCode(code)
+          const validation = isEurosonicTarget(availableBoards.get(deviceDefinitions.configuration.deviceBoard))
+            ? validateEurosonicCpp({ name: pou.data.name, code, variables: pou.data.variables }, pou.type)
+            : validateCppCode(code)
           if (!validation.valid) {
             consoleActions.addLog({
               id: crypto.randomUUID(),
@@ -694,10 +701,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
         processedProjectData.pous = processedProjectData.pous.map((pou: PLCPou) => {
           if (pou.data.body.language === 'cpp') {
-            const stCode = generateCppSTCode({
-              pouName: pou.data.name,
-              allVariables: pou.data.variables,
-            })
+            const stCode = isEurosonicTarget(availableBoards.get(deviceDefinitions.configuration.deviceBoard))
+              ? generateEurosonicCppST(pou.data.name, pou.data.variables, pou.data.body.value)
+              : generateCppSTCode({
+                  pouName: pou.data.name,
+                  allVariables: pou.data.variables,
+                })
 
             pou.data.body = {
               language: 'st',
