@@ -40,6 +40,16 @@ endif()
 # Add the executable target
 add_executable(OpenPLC ${SOURCES})
 
+# Only native C++ projects need this check. The PLC loader does not run global
+# C++ constructors; reject those objects instead of silently shipping bad state.
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/eurosonic_cpp_types.h)
+    add_custom_command(TARGET OpenPLC PRE_LINK
+        COMMAND python ${CMAKE_SOURCE_DIR}/check_cpp_objects.py
+            ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/OpenPLC.dir
+        VERBATIM
+    )
+endif()
+
 # Add libraries if necessary
 #target_link_libraries(OpenPLC PRIVATE <external_library>)
 

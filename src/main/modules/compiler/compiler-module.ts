@@ -25,6 +25,7 @@ import JSZip from 'jszip'
 import * as tftp from 'tftp'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
+import { writeEurosonicCppFiles } from './eurosonic-cpp'
 import {
   EUROSONIC_PLC_FLASH_SIZE_BYTES,
   EUROSONIC_PLC_HEADER_SIZE_BYTES,
@@ -1156,6 +1157,12 @@ class CompilerModule {
     handleOutputData: HandleOutputDataCallback,
   ) {
     const originalCppPous = projectData.originalCppPous || []
+
+    if (isEurosonicCompiler(boardRuntime)) {
+      await writeEurosonicCppFiles(join(compilationPath, 'src'), originalCppPous)
+      handleOutputData(`Generated ${originalCppPous.length} Eurosonic C++ translation unit(s).`, 'info')
+      return
+    }
 
     if (originalCppPous.length === 0) {
       handleOutputData('No C/C++ blocks found, skipping c_blocks_code.cpp generation', 'info')
