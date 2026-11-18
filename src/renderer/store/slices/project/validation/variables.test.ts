@@ -1,6 +1,11 @@
 import type { PLCVariable } from '@root/types/PLC/open-plc'
 
-import { createVariableValidation } from './variables'
+import {
+  createGlobalVariableValidation,
+  createVariableValidation,
+  updateGlobalVariableValidation,
+  updateVariableValidation,
+} from './variables'
 
 const variable = (name: string, type: string, location: string): PLCVariable =>
   ({
@@ -31,5 +36,25 @@ describe('project variable location allocation', () => {
     const existing = Array.from({ length: 8 }, (_, bit) => variable(`B${bit}`, 'BOOL', `%QX0.${bit}`))
     existing.push(variable('B8', 'BOOL', '%QX1.0'))
     expect(createVariableValidation(existing, variable('NewBool', 'BOOL', '%QX0.0')).location).toBe('%QX1.1')
+  })
+})
+
+describe('case-insensitive variable names', () => {
+  it('allows changing only the casing of the current variable', () => {
+    const motor = variable('Motor', 'BOOL', '')
+    expect(updateVariableValidation([motor], { name: 'motor' }, motor).ok).toBe(true)
+    expect(updateGlobalVariableValidation([motor], { name: 'motor' }, motor).ok).toBe(true)
+  })
+
+  it('rejects a case-insensitive collision with another variable', () => {
+    const motor = variable('Motor', 'BOOL', '')
+    const other = variable('Other', 'BOOL', '')
+    expect(updateVariableValidation([motor, other], { name: 'MOTOR' }, other).ok).toBe(false)
+    expect(updateGlobalVariableValidation([motor, other], { name: 'MOTOR' }, other).ok).toBe(false)
+  })
+
+  it('does not allocate a global name that differs only in case', () => {
+    const name = createGlobalVariableValidation([variable('Motor', 'BOOL', '')], 'motor')
+    expect(name.toLowerCase()).not.toBe('motor')
   })
 })

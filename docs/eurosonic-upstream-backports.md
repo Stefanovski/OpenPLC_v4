@@ -468,3 +468,122 @@ powershell -NoProfile -File scripts\eurosonic\Export-EurosonicBaseline.ps1 `
 The current stored project has generated sources newer than its last successful `OPEN_PLC.bin`. Until a new build is produced through the known working Editor workflow, source hashes and binary hashes must be treated as separate reference sets.
 
 The direct standalone CMake attempt also exposed a local Ninja/CMake ABI-check hang. GCC, `arm-none-eabi-ar`, and `arm-none-eabi-ranlib` work independently; no production build script has been changed while investigating it.
+
+
+## Selective v4.3.0 tranche (2026-11-10)
+
+Base: Eurosonic d9, `fe7174c22`. Initial integration branch: `codex/sync-openplc-v4.3.0`.
+On 2026-11-12 the pending changes were preserved on the new acceptance branch
+`codex/upstream-v4.3.0-safe-features`. Merge remains deferred until manual acceptance.
+Official comparison: `v4.2.11..v4.3.0`; v4.3.0 resolves to
+`5adb180f1759656410ca5ba320a96c8a87ad3317`. The range contains 443 non-merge commits
+and changes 662 files. This is a selective behavior port, not adoption of the
+upstream architecture or a claim of full v4.3.0 compatibility.
+
+### Adapted behavior
+
+| Upstream reference | Local adaptation |
+| --- | --- |
+| `aaec22ad0`, `db395df26`, `76d1aca1b` | Case-insensitive local/global name collisions and automatic name allocation; allow a case-only rename of the same variable; reject duplicates in declaration text before it reaches the store. |
+| `e967a4fc0`, `1a58b1fa4` | Parse inline multi-dimensional arrays into our structured type model, reject empty dimensions/misplaced commas, and serialize actual array dimensions. Preserve both existing located-variable declaration spellings. |
+| `6225b76f8` | Wait for all configuration writes to settle before reporting failure. Write project metadata only after POU contents succeed; do not delete obsolete POUs when a preceding content write fails. Accept a native project.json path on Windows. |
+
+The editor backports were adapted to the existing main/renderer architecture
+and leave the runtime and compiler resources unchanged. The branch also
+contains the separate Eurosonic PLC storage integration described below. The
+editor version remains d9 pending a separate release request.
+
+Saving is not a filesystem transaction: successful individual writes are not
+rolled back on a later error, and this change does not guarantee recovery from
+power loss. The automated tests exercise write ordering, delayed failures,
+metadata preservation and suppression of obsolete-file deletion.
+
+### Deferred changes
+
+- Save As, PDF export and graphical-editor model changes need their own UI and
+  project-roundtrip work; they are not included in this limited tranche.
+  Save As was reviewed again on 2026-11-12: the existing save action also marks
+  editor files saved and clears pending POU deletions. Reusing it for another
+  destination requires separate handling of unsaved variable text, open editor
+  paths and project switching. Enabling the currently disabled menu item alone
+  would not provide a safe project copy.
+- Upstream's native C++ type completion depends on the STruC++ language server.
+- STruC++ migration, runtime-v4 protocol, retain support, source retrieval from
+  PLC, OPC-UA/S7 and board/licensing flows are not compatible drop-in changes.
+- No upstream source licensing headers were removed or rewritten; any future
+  direct source import must retain its applicable license notices.
+
+### Manual acceptance in the development editor
+
+Use a copy of the PLC test project. Start this branch with `npm run start:dev`;
+the previously built d9 installer does not contain this tranche.
+
+1. In an ST POU's variable text view, declare:
+
+   ```iecst
+   VAR
+       Samples : ARRAY[-1..1, 2..3] OF INT;
+   END_VAR
+   ```
+
+   Switch to the table and back. Both dimensions and the INT element type must
+   remain. Use `Samples[-1, 2] := 42;` in the ST body, compile, save, close and
+   reopen the project. Confirm the array remains intact.
+2. Try `ARRAY[0..1,] OF INT` and `INT, DINT`: neither may be accepted as a valid
+   type. Restore the valid declaration before saving.
+3. Declare `Motor : BOOL;` and `motor : BOOL;` in the same variable text view:
+   expect a duplicate-name error. With only Motor present, a table rename to
+   motor must succeed. Renaming a different local/global variable to MOTOR must
+   fail; creating a new name must allocate a non-colliding name.
+4. Save changes to two POUs, reopen the project and check both bodies plus the
+   task/device configuration. Do not simulate disk faults on the working project;
+   delayed-write and disk-full conditions are covered by mocked I/O tests.
+5. Compile the existing ST/FBD/LD project and CppBlink. On a suitable test device,
+   verify the existing %QX120.6 blink, IEC watches and force/release behavior.
+   No automated validation here uploads code or writes to hardware.
+
+
+### Validation of this tranche
+
+- Rechecked on `codex/upstream-v4.3.0-safe-features` on 2026-11-12:
+  all 31 Jest suites / 176 tests, TypeScript (`--skipLibCheck`) and
+  `git diff --check` passed. Production and ARM results below are from the
+  preceding validation of the same production source changes.
+- Full Jest suite: 31 suites, 176 tests passed.
+- Save-failure tests rechecked after test-only lint corrections: passed.
+- TypeScript application check (`--skipLibCheck`): passed.
+- ESLint on changed production modules and tests: passed (new save tests fixed
+  and rechecked separately after the first lint run).
+- Production main and renderer builds: passed.
+- Native C++ execution and ARM production/debug compile/link checks: passed.
+- No-C++ baseline: 3520 bytes, SHA256
+  `582bd5e315274bd88e9710d9bd1358dccbb7dd1e899cdd7a755839c25afca754`,
+  identical to the d9 baseline. Global-constructor rejection also passed.
+- `git diff --check`: passed.
+- On 2026-11-18 the editor accepted and compiled the two-dimensional array
+  after switching between text and table, saving, and reopening the project.
+  It rejected the malformed declaration and the case-insensitive duplicate,
+  and accepted a case-only change. Changes in two POUs survived reopening
+  with the task, board, and pin configuration intact.
+- The Eurosonic 8 kW test board ran the existing ST, FBD, LD and C++ blocks.
+  The IEC debugger forced and released the BOOL and INT test outputs.
+- Switching projects with the IEC debugger running can leave the old
+  reconnect loop active. Disconnect the debugger before switching projects.
+
+### Eurosonic PLC storage integration
+
+Local `VAR RETAIN` declarations survive editor save and PLCopen export.
+The M7 stores up to 704 bytes of RETAIN data in redundant FRAM records.
+The asynchronous `plc_storage.h` file API accesses the existing QSPI LittleFS
+under `/plc/recipes/` and `/plc/logs/`.
+
+New Eurosonic PLC images on this branch require a matching M7 build that
+binds the storage interface. Without that binding the PLC cycle returns
+before executing the program, even for projects that use no storage. A version
+label alone does not establish compatibility with an existing M7 build.
+Older PLC binaries can still run on the new M7.
+
+On 2026-11-18, the hardware test restored the retained counter and read a file
+created before restart. A separate C++ test appended a second entry and read
+both entries in order after a hardware reset. Host tests cover interrupted FRAM
+writes, corrupted records, and preservation of the other FRAM regions.

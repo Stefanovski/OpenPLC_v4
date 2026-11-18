@@ -1,4 +1,8 @@
 import type { PLCDataType, PLCPou } from '@root/types/PLC/open-plc'
+import { create } from 'xmlbuilder2'
+
+import { parseIecStringToVariables } from '../../generate-iec-string-to-variables'
+import { generateIecVariablesToString } from '../../generate-iec-variables-to-string'
 
 import { codeSysParseDataTypesToXML } from './codesys/data-type-xml'
 import { codeSysParseInterface } from './codesys/pou-xml'
@@ -50,12 +54,25 @@ const makeBaseXml = <T>() =>
   ({ project: { types: { dataTypes: { dataType: [] } } } }) as unknown as T
 
 describe('PLCopen XML regressions', () => {
+  it('keeps RETAIN through the declaration editor and emits a separate PLCopen variable block', () => {
+    const variables = parseIecStringToVariables(
+      'VAR\nVolatileCount : DINT;\nEND_VAR\nVAR RETAIN\nSavedCount : DINT;\nEND_VAR',
+    )
+    const saved = generateIecVariablesToString(variables)
+    expect(parseIecStringToVariables(saved)).toEqual(variables)
+
+    const { localVars } = oldEditorParseInterface({ ...stringPou, data: { ...stringPou.data, variables } } as PLCPou)
+    const xml = create({ interface: { localVars } }).end()
+    expect(xml).toContain('<localVars><variable name="VolatileCount">')
+    expect(xml).toContain('<localVars retain="true"><variable name="SavedCount">')
+  })
+
   it('serializes uppercase STRING using the lowercase PLCopen tag', () => {
     const uppercaseString = { definition: 'base-type', value: 'STRING' } as unknown as Parameters<
       typeof convertTypeToXml
     >[0]
     expect(convertTypeToXml(uppercaseString)).toEqual({ string: '' })
-    expect(oldEditorParseInterface(stringPou).localVars?.variable?.[0].type).toEqual({ string: '' })
+    expect(oldEditorParseInterface(stringPou).localVars?.[0].variable[0].type).toEqual({ string: '' })
     expect(codeSysParseInterface(stringPou).localVars?.variable?.[0].type).toEqual({ string: '' })
   })
 

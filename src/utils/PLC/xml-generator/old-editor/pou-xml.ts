@@ -74,9 +74,14 @@ export const oldEditorParseInterface = (pou: PLCPou) => {
         return
       }
       case 'local': {
-        if (!xml.localVars) xml.localVars = { variable: [] }
-        if (!xml.localVars.variable) xml.localVars.variable = []
-        xml.localVars.variable.push(v)
+        const blocks = (xml.localVars ??= [])
+        const retain = variable.retain ? 'true' : undefined
+        let block = blocks.find((entry) => entry['@retain'] === retain)
+        if (!block) {
+          block = { ...(retain ? { '@retain': retain } : {}), variable: [] }
+          blocks.push(block)
+        }
+        block.variable.push(v)
         return
       }
       case 'temp': {

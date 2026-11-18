@@ -13,13 +13,13 @@ const varBlockToClass: Record<string, PLCVariable['class']> = {
 
 const standardLineRegex =
   // eslint-disable-next-line no-useless-escape
-  /^\s*(?<name>\w+)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*:\s*(?<type>[\w\s\[\]\.]+?)\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
+  /^\s*(?<name>\w+)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*:\s*(?<type>[\w\s\[\]\.\-,]+?)\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
 
 // OpenPLC v4.1.0 briefly serialized AT after the type. Accept that form when
 // reading so projects saved with either editor version remain loadable.
 const typeFirstLineRegex =
   // eslint-disable-next-line no-useless-escape
-  /^\s*(?<name>\w+)\s*:\s*(?<type>[\w\s\[\]\.]+?)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
+  /^\s*(?<name>\w+)\s*:\s*(?<type>[\w\s\[\]\.\-,]+?)(?:\s+AT\s+(?<location>%[\w\d\._]+))?\s*(?::=\s*(?<initialValue>[^;]+?))?\s*;\s*(?:\(\*\s*(?<documentation>.*?)\s*\*\))?$/
 
 const guessErrorReason = (line: string): string => {
   if (!line.includes(';')) return 'missing semicolon (;) at the end of the declaration'
@@ -36,6 +36,25 @@ const hasLibraryPous = (lib: unknown): lib is { pous: Array<{ name: string; type
   return typeof lib === 'object' && lib !== null && 'pous' in lib && Array.isArray((lib as { pous: unknown }).pous)
 }
 
+// Preserve the structured array model when switching between table and text.
+const parseArrayType = (text: string): PLCVariable['type'] | null => {
+  const match = /^ARRAY\s*\[([^\]]+)\]\s+OF\s+([a-zA-Z_][a-zA-Z0-9_]*)$/i.exec(text)
+  if (!match) return null
+  const dimensions = match[1].split(',').map((dimension) => dimension.trim())
+  if (dimensions.some((dimension) => !dimension)) return null
+  const base = baseTypeSchema.safeParse(match[2].toLowerCase())
+  return {
+    definition: 'array',
+    value: `ARRAY [${dimensions.join(', ')}] OF ${base.success ? base.data.toUpperCase() : match[2]}`,
+    data: {
+      baseType: base.success
+        ? { definition: 'base-type', value: base.data }
+        : { definition: 'user-data-type', value: match[2] },
+      dimensions: dimensions.map((dimension) => ({ dimension })),
+    },
+  }
+}
+
 export const parseIecStringToVariables = (
   iecString: string,
   pous?: PLCPou[],
@@ -45,15 +64,22 @@ export const parseIecStringToVariables = (
   const variables: PLCVariable[] = []
   const lines = iecString.split(/\r?\n/)
   let currentClass: PLCVariable['class'] | null = null
+  let retain = false
 
   lines.forEach((rawLine, idx) => {
     const lineNumber = idx + 1
     const line = rawLine.trim()
     if (line === '') return
 
-    const blockStart = line.match(/^(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_EXTERNAL|VAR_TEMP|VAR_GLOBAL|VAR)\b/i)
+    const blockStart = line.match(
+      /^(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_EXTERNAL|VAR_TEMP|VAR_GLOBAL|VAR)\b(?:\s+(RETAIN)\b)?/i,
+    )
     if (blockStart) {
       currentClass = varBlockToClass[blockStart[1].toUpperCase()]
+      retain = Boolean(blockStart[2])
+      if (retain && currentClass !== 'local') {
+        throw new Error(`Syntax error on line ${lineNumber}: RETAIN is supported in local VAR blocks.`)
+      }
       return
     }
 
@@ -70,6 +96,9 @@ export const parseIecStringToVariables = (
     }
 
     const { name, location, type, initialValue, documentation } = match.groups
+    if (retain && location) {
+      throw new Error(`Syntax error on line ${lineNumber}: RETAIN cannot be used with an AT address.`)
+    }
 
     const disallowedLocationClasses: Array<PLCVariable['class']> = ['input', 'output', 'inOut', 'external', 'temp']
 
@@ -85,7 +114,15 @@ export const parseIecStringToVariables = (
       )
     }
 
+    if (variables.some((variable) => variable.name.toLowerCase() === name.toLowerCase())) {
+      throw new Error(`Syntax error on line ${lineNumber}: Variable "${name}" is declared more than once.`)
+    }
+
     const parsedType = type.trim()
+    const arrayType = parseArrayType(parsedType)
+    if (!arrayType && (/^ARRAY\b/i.test(parsedType) || /[,-]/.test(parsedType))) {
+      throw new Error(`Syntax error on line ${lineNumber}: Invalid ARRAY declaration or misplaced comma.`)
+    }
     const baseCheck = baseTypeSchema.safeParse(parsedType.toLowerCase())
 
     const isUserFunctionBlock = pous?.some(
@@ -105,11 +142,13 @@ export const parseIecStringToVariables = (
 
     const isFunctionBlock = isUserFunctionBlock || isSystemFunctionBlock || isUserLibraryFunctionBlock
 
-    const typeDefinition: PLCVariable['type'] = baseCheck.success
-      ? { definition: 'base-type' as const, value: baseCheck.data }
-      : isFunctionBlock
-        ? { definition: 'derived' as const, value: parsedType }
-        : { definition: 'user-data-type' as const, value: parsedType }
+    const typeDefinition: PLCVariable['type'] =
+      arrayType ??
+      (baseCheck.success
+        ? { definition: 'base-type' as const, value: baseCheck.data }
+        : isFunctionBlock
+          ? { definition: 'derived' as const, value: parsedType }
+          : { definition: 'user-data-type' as const, value: parsedType })
 
     variables.push({
       name: name.trim(),
@@ -117,6 +156,7 @@ export const parseIecStringToVariables = (
       type: typeDefinition,
       location: location ? location.trim() : '',
       initialValue: initialValue ? initialValue.trim() : null,
+      ...(retain ? { retain: true as const } : {}),
       documentation: documentation ? documentation.trim() : '',
       debug: false,
     })

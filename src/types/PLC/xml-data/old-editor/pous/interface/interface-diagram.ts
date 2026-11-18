@@ -42,9 +42,12 @@ const interfaceXMLSchema = z.object({
     })
     .optional(),
   localVars: z
-    .object({
-      variable: z.array(variableXMLSchema).optional(),
-    })
+    .array(
+      z.object({
+        '@retain': z.literal('true').optional(),
+        variable: z.array(variableXMLSchema),
+      }),
+    )
     .optional(),
   tempVars: z
     .object({

@@ -102,6 +102,9 @@ void init_plc(unsigned long long *pcommon_ticktime)
 //--------------------------------------------------------------------------------
 void run_plc(void(*update_inputs)(void), void(*update_outputs)(void))
 {
+	extern int plc_storage_ready(void);
+	// New PLC images require the matching host ABI, never run silently without RETAIN.
+	if (!plc_storage_ready()) return;
 	// read input image
 	if (update_inputs != NULL) update_inputs();
   // run the PLC

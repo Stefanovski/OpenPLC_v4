@@ -9,7 +9,7 @@ import { getExtensionFromLanguage } from '@root/utils/PLC/pou-file-extensions'
 import { serializePouToText } from '@root/utils/PLC/pou-text-serializer'
 import { app, BrowserWindow, dialog } from 'electron'
 import { promises } from 'fs'
-import { dirname, join, normalize } from 'path'
+import { basename, dirname, join, normalize } from 'path'
 
 import { PLCPou, PLCProject } from '../../../types/PLC/open-plc'
 import { i18n } from '../../../utils/i18n'
@@ -262,20 +262,19 @@ class ProjectService {
       }
     }
 
-    const directoryPath = projectPath.endsWith('/project.json')
-      ? projectPath.slice(0, -'/project.json'.length)
-      : projectPath
+    const directoryPath = basename(projectPath) === 'project.json' ? dirname(projectPath) : projectPath
 
     try {
-      // Write each part to its correct file based on projectDefaultFilesMapSchema
-      await Promise.all([
-        promises.writeFile(join(directoryPath, 'project.json'), JSON.stringify(projectData, null, 2)),
+      // Wait for all pending writes even if one fails, before allowing a retry.
+      const writes = await Promise.allSettled([
         promises.writeFile(
           join(directoryPath, 'devices/configuration.json'),
           JSON.stringify(deviceConfiguration, null, 2),
         ),
         promises.writeFile(join(directoryPath, 'devices/pin-mapping.json'), JSON.stringify(devicePinMapping, null, 2)),
       ])
+      const failure = writes.find((result) => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
     } catch (error) {
       console.error(error)
       return {
@@ -315,6 +314,9 @@ class ProjectService {
           await promises.writeFile(filePath, textContent, 'utf-8')
         }
       }
+
+      // Publish metadata only after every content write succeeded.
+      await promises.writeFile(join(directoryPath, 'project.json'), JSON.stringify(projectData, null, 2))
 
       if (projectData.data.deletedPous && projectData.data.deletedPous.length > 0) {
         for (const deletedPou of projectData.data.deletedPous) {

@@ -11,12 +11,14 @@ import { checkTypeCompatibility } from '../utils'
 const checkIfStructureVariableExists = (variables: PLCStructureVariable[], name: string) => {
   return variables.some((variable) => variable.name === name)
 }
-const checkIfVariableExists = (variables: PLCVariable[], name: string) => {
-  const nameAlreadyInUse = variables.some((variable) => variable.name.toLowerCase() === name.toLowerCase())
+const checkIfVariableExists = (variables: PLCVariable[], name: string, exclude?: PLCVariable) => {
+  const nameAlreadyInUse = variables.some(
+    (variable) => variable !== exclude && variable.name.toLowerCase() === name.toLowerCase(),
+  )
   return nameAlreadyInUse
 }
-const checkIfGlobalVariableExists = (variables: PLCGlobalVariable[], name: string) => {
-  return variables.some((variable) => variable.name === name)
+const checkIfGlobalVariableExists = (variables: PLCGlobalVariable[], name: string, exclude?: PLCGlobalVariable) => {
+  return variables.some((variable) => variable !== exclude && variable.name.toLowerCase() === name.toLowerCase())
 }
 
 /**
@@ -381,7 +383,7 @@ const updateVariableValidation = (
       return response
     }
 
-    if (checkIfVariableExists(variables, name)) {
+    if (checkIfVariableExists(variables, name, variableToUpdate)) {
       console.error(`Variable "${name}" already exists`)
       response = {
         ok: false,
@@ -447,6 +449,7 @@ const createGlobalVariableValidation = (variables: PLCGlobalVariable[], variable
 const updateGlobalVariableValidation = (
   variables: PLCGlobalVariable[],
   dataToBeUpdated: Partial<PLCGlobalVariable>,
+  variableToUpdate?: PLCGlobalVariable,
 ) => {
   let response: ProjectResponse = { ok: true }
 
@@ -462,7 +465,7 @@ const updateGlobalVariableValidation = (
       return response
     }
 
-    if (checkIfGlobalVariableExists(variables, name)) {
+    if (checkIfGlobalVariableExists(variables, name, variableToUpdate)) {
       console.error(`Global Variable "${name}" already exists`)
       response = {
         ok: false,
