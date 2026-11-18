@@ -338,14 +338,6 @@ const createProjectSlice: StateCreator<ProjectSlice, [], [], ProjectSlice> = (se
           const { scope } = dataToBeUpdated
           switch (scope) {
             case 'global': {
-              const validationResponse = updateGlobalVariableValidation(
-                project.data.configuration.resource.globalVariables,
-                dataToBeUpdated.data,
-              )
-              if (!validationResponse.ok) {
-                response = validationResponse
-                break
-              }
               const variableToUpdate = getVariableBasedOnRowIdOrVariableId(
                 project.data.configuration.resource.globalVariables,
                 dataToBeUpdated.rowId,
@@ -353,6 +345,15 @@ const createProjectSlice: StateCreator<ProjectSlice, [], [], ProjectSlice> = (se
               )
               if (!variableToUpdate) {
                 response = { ok: false, title: 'Variable not found' }
+                break
+              }
+              const validationResponse = updateGlobalVariableValidation(
+                project.data.configuration.resource.globalVariables,
+                dataToBeUpdated.data,
+                variableToUpdate,
+              )
+              if (!validationResponse.ok) {
+                response = validationResponse
                 break
               }
               const index = project.data.configuration.resource.globalVariables.indexOf(variableToUpdate)

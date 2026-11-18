@@ -5,11 +5,11 @@ import { WorkspaceResponse } from '../types'
 /**
  * This is a validation to check if the variable name already exists.
  **/
-const checkIfVariableExists = (variables: PLCVariable[], name: string) => {
-  return variables.some((variable) => variable.name === name)
+const checkIfVariableExists = (variables: PLCVariable[], name: string, exclude?: PLCVariable) => {
+  return variables.some((variable) => variable !== exclude && variable.name.toLowerCase() === name.toLowerCase())
 }
-const checkIfGlobalVariableExists = (variables: PLCGlobalVariable[], name: string) => {
-  return variables.some((variable) => variable.name === name)
+const checkIfGlobalVariableExists = (variables: PLCGlobalVariable[], name: string, exclude?: PLCGlobalVariable) => {
+  return variables.some((variable) => variable !== exclude && variable.name.toLowerCase() === name.toLowerCase())
 }
 /**
  * This is a validation to check if the variable name is correct.
@@ -63,7 +63,7 @@ const createVariableValidation = (variables: PLCVariable[], variableName: string
   if (checkIfVariableExists(variables, variableName)) {
     const regex = /_\d+$/
     const filteredVariables = variables.filter((variable: PLCVariable) =>
-      variable.name.includes(variableName.replace(regex, '')),
+      variable.name.toLowerCase().includes(variableName.replace(regex, '').toLowerCase()),
     )
     const sortedVariables = filteredVariables.sort((a, b) => {
       const matchA = a.name.match(regex)
@@ -95,7 +95,11 @@ const createVariableValidation = (variables: PLCVariable[], variableName: string
  * If the variable name is invalid, create a response.
  * If the variable name already exists, create or change a response.
  **/
-const updateVariableValidation = (variables: PLCVariable[], dataToBeUpdated: Partial<PLCVariable>) => {
+const updateVariableValidation = (
+  variables: PLCVariable[],
+  dataToBeUpdated: Partial<PLCVariable>,
+  variableToUpdate?: PLCVariable,
+) => {
   let response: WorkspaceResponse = { ok: true }
 
   if (dataToBeUpdated.name || dataToBeUpdated.name === '') {
@@ -110,7 +114,7 @@ const updateVariableValidation = (variables: PLCVariable[], dataToBeUpdated: Par
       return response
     }
 
-    if (checkIfVariableExists(variables, name)) {
+    if (checkIfVariableExists(variables, name, variableToUpdate)) {
       console.error(`Variable "${name}" already exists`)
       response = {
         ok: false,
@@ -137,7 +141,7 @@ const createGlobalVariableValidation = (variables: PLCGlobalVariable[], variable
   if (checkIfGlobalVariableExists(variables, variableName)) {
     const regex = /_\d+$/
     const filteredVariables = variables.filter((variable: PLCVariable) =>
-      variable.name.includes(variableName.replace(regex, '')),
+      variable.name.toLowerCase().includes(variableName.replace(regex, '').toLowerCase()),
     )
     const sortedVariables = filteredVariables.sort((a, b) => {
       const matchA = a.name.match(regex)
@@ -167,6 +171,7 @@ const createGlobalVariableValidation = (variables: PLCGlobalVariable[], variable
 const updateGlobalVariableValidation = (
   variables: PLCGlobalVariable[],
   dataToBeUpdated: Partial<PLCGlobalVariable>,
+  variableToUpdate?: PLCGlobalVariable,
 ) => {
   let response: WorkspaceResponse = { ok: true }
 
@@ -182,7 +187,7 @@ const updateGlobalVariableValidation = (
       return response
     }
 
-    if (checkIfGlobalVariableExists(variables, name)) {
+    if (checkIfGlobalVariableExists(variables, name, variableToUpdate)) {
       console.error(`Global Variable "${name}" already exists`)
       response = {
         ok: false,

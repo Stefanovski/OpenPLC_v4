@@ -55,6 +55,10 @@ SECTIONS
         KEEP(*(.debug_interface_section))
     } > FLASH
 
+    .storage_interface_section 0x081C0800 : ALIGN(4)
+    {
+        KEEP(*(.storage_interface_section))
+    } > FLASH
 	.text :
 	{
 		. = ALIGN(4);

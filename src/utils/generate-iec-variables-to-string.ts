@@ -1,7 +1,11 @@
 import { PLCVariable } from '@root/types/PLC'
+import type { PLCVariable as LegacyPLCVariable } from '@root/types/PLC/open-plc'
+
+type TextVariable = PLCVariable | LegacyPLCVariable
 
 const classToVarBlock: Record<string, string> = {
   local: 'VAR',
+  retain: 'VAR RETAIN',
   input: 'VAR_INPUT',
   output: 'VAR_OUTPUT',
   inout: 'VAR_IN_OUT',
@@ -10,14 +14,14 @@ const classToVarBlock: Record<string, string> = {
   temp: 'VAR_TEMP',
 }
 
-export const generateIecVariablesToString = (variables: PLCVariable[]): string => {
+export const generateIecVariablesToString = (variables: TextVariable[]): string => {
   if (!variables || variables.length === 0) {
     return 'VAR\nEND_VAR'
   }
 
   const groupedVariables = variables.reduce(
     (acc, variable) => {
-      const key = (variable.class ?? 'global').toLowerCase()
+      const key = variable.class === 'local' && variable.retain ? 'retain' : (variable.class ?? 'global').toLowerCase()
 
       if (!acc[key]) {
         acc[key] = []
@@ -25,11 +29,11 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
       acc[key].push(variable)
       return acc
     },
-    {} as Record<string, PLCVariable[]>,
+    {} as Record<string, TextVariable[]>,
   )
 
   let textualDeclaration = ''
-  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'temp']
+  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'retain', 'temp']
 
   orderedGroups.forEach((groupName) => {
     if (groupedVariables[groupName]) {
@@ -43,7 +47,11 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
           line += ` AT ${v.location}`
         }
 
-        line += ` : ${v.type.value}`
+        const typeText =
+          v.type.definition === 'array'
+            ? `ARRAY [${v.type.data.dimensions.map(({ dimension }) => dimension).join(', ')}] OF ${v.type.data.baseType.definition === 'base-type' ? v.type.data.baseType.value.toUpperCase() : v.type.data.baseType.value}`
+            : v.type.value
+        line += ` : ${typeText}`
 
         if (v.initialValue) {
           line += ` := ${v.initialValue}`

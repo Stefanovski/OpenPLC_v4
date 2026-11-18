@@ -1,0 +1,107 @@
+// Paste into an OpenPLC C/C++ function block with two DINT outputs:
+// FileStatus and RetainStatus. Use exactly one instance.
+#include "plc_storage.h"
+#include <string.h>
+
+enum FileProbeStep {
+    OpenExisting, OpenNew, WriteProbe, CloseNew, Reopen, ReadProbe, CloseRead
+};
+
+static constexpr uint32_t operations[] = {
+    PLC_FILE_OPEN_READ, PLC_FILE_OPEN_WRITE, PLC_FILE_WRITE,
+    PLC_FILE_CLOSE, PLC_FILE_OPEN_READ, PLC_FILE_READ, PLC_FILE_CLOSE
+};
+static constexpr char path[] = "/plc/logs/openplc-storage-test-v1.bin";
+static constexpr char marker[] = "GEN2";
+static constexpr uint32_t markerSize = sizeof(marker) - 1;
+static FileProbeStep step;
+static uint32_t ticket;
+static uint32_t handle;
+static bool pending;
+static bool created;
+static int32_t failure;
+
+void setup()
+{
+    FileStatus = 0;
+    step = OpenExisting;
+    ticket = 0;
+    handle = 0;
+    pending = false;
+    created = false;
+    failure = 0;
+}
+
+void loop()
+{
+    RetainStatus = plc_retain_status();
+    if (FileStatus != 0) return;
+
+    if (!pending) {
+        plc_file_request_t request{};
+        request.operation = operations[step];
+        request.handle = handle;
+        if (step == OpenExisting || step == OpenNew || step == Reopen)
+            memcpy(request.path, path, sizeof(path));
+        if (step == WriteProbe)
+            request.length = markerSize;
+        if (step == ReadProbe)
+            request.length = markerSize + 1; // Detect unexpected trailing data.
+        if (step == WriteProbe)
+            memcpy(request.data, marker, markerSize);
+
+        const int32_t status = plc_file_submit(&request, &ticket);
+        if (status < 0) FileStatus = status;
+        pending = status == PLC_STORAGE_OK;
+        return;
+    }
+
+    plc_file_result_t result{};
+    const int32_t status = plc_file_poll(ticket, &result);
+    if (status == PLC_STORAGE_BUSY) return;
+    pending = false;
+    if (status < 0) {
+        FileStatus = status;
+        return;
+    }
+    if (step == OpenExisting && result.result == -2) { // LittleFS: file not found
+        step = OpenNew;
+        return;
+    }
+    if (result.result < 0 && step != WriteProbe && step != ReadProbe) {
+        FileStatus = result.result;
+        return;
+    }
+
+    switch (step) {
+    case OpenExisting:
+    case Reopen:
+        handle = result.result;
+        step = ReadProbe;
+        break;
+    case OpenNew:
+        handle = result.result;
+        created = true;
+        step = WriteProbe;
+        break;
+    case WriteProbe:
+        if (result.result != static_cast<int32_t>(markerSize))
+            failure = result.result < 0 ? result.result : PLC_STORAGE_IO;
+        step = CloseNew;
+        break;
+    case CloseNew:
+        if (failure) FileStatus = failure;
+        step = Reopen;
+        break;
+    case ReadProbe:
+        if (result.result < 0)
+            failure = result.result;
+        else if (result.length != markerSize || memcmp(result.data, marker, markerSize) != 0)
+            failure = PLC_STORAGE_IO;
+        step = CloseRead;
+        break;
+    case CloseRead:
+        FileStatus = failure ? failure : (created ? 1 : 2);
+        break;
+    }
+}

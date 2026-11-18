@@ -39,6 +39,7 @@ const PLCVariableSchema = z.object({
   ]),
   location: z.string(),
   initialValue: z.string().or(z.null()).optional(),
+  retain: z.literal(true).optional(),
   documentation: z.string(),
   debug: z.boolean(),
 })
