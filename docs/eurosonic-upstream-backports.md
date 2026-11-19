@@ -575,7 +575,9 @@ the previously built d9 installer does not contain this tranche.
 Local `VAR RETAIN` declarations survive editor save and PLCopen export.
 The M7 stores up to 704 bytes of RETAIN data in redundant FRAM records.
 The asynchronous `plc_storage.h` file API accesses the existing QSPI LittleFS
-under `/plc/recipes/` and `/plc/logs/`.
+under `/plc/recipes/` and `/plc/logs/`. For `/web/recipes/` support and the
+atomic replacement and HTTP retrieval example, see the
+[GEN2 LittleFS file API and recipe publishing guide](eurosonic-cpp.md#gen2-littlefs-file-api-and-recipe-publishing).
 
 New Eurosonic PLC images on this branch require a matching M7 build that
 binds the storage interface. Without that binding the PLC cycle returns
