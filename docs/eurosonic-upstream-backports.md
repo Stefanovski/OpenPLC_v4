@@ -589,3 +589,162 @@ On 2026-11-18, the hardware test restored the retained counter and read a file
 created before restart. A separate C++ test appended a second entry and read
 both entries in order after a hardware reset. Host tests cover interrupted FRAM
 writes, corrupted records, and preservation of the other FRAM regions.
+
+## Save As adaptation (2026-11-19)
+
+Branch: `codex/upstream-v4.3.0-next-features`, based on development `051add70e`.
+This supersedes the Save As deferral above. Behavior references: upstream
+`c849309d7`, `605ccc39b`, `c44cc6054`; implementation adapted to the existing
+Eurosonic stores and project serializer, without adopting the upstream runtime.
+
+File > Save As (Ctrl+Shift+A; Cmd+Shift+A on macOS) asks for a **new folder name**.
+It writes the current project model, device configuration, pin mapping and all
+POUs. It does not save the original first. Existing files/folders and destinations
+inside the source project are rejected, including paths through junctions.
+The reserved folder name `project.json` is rejected to avoid the existing save
+service's file-versus-directory ambiguity.
+
+Pending React editor updates and focused inputs are flushed before snapshotting.
+Raw POU variable text is preserved, including incomplete declarations. Global
+declarations must parse successfully because the project format stores them as
+structured data; invalid text leaves the open project untouched. Current FBD/LD
+flows are taken directly from the flow stores. Successful adoption rebases open
+file/tab/editor paths while preserving editor models and undo history. Edits
+made during the write are retained and leave the adopted project dirty. A
+different project opened during the operation is not replaced. Cancel and write
+failure never adopt the destination or mark the source saved.
+
+This saves project sources, not a recursive directory backup: generated build
+artifacts, arbitrary extra files and installed library packages are not copied.
+The project name stays the same. A failed write may leave an incomplete new
+destination; it is not deleted automatically, and a retry needs another new
+folder name. This is not a power-failure-safe filesystem transaction.
+
+### Automated coverage
+
+The Save As suites use disposable filesystem fixtures (never the user's PLC
+project), real POU serialization and the real project reader. They cover original
+file preservation, ST/C++/FBD/LD roundtrip, subsequent normal save to the copy,
+cancel, existing destinations, source containment, junctions, path traversal,
+write and history failures, pending declarations/flows, changed state during I/O,
+project switching, IPC failure/retry and duplicate Save As requests.
+
+Validation on 2026-11-19: full Jest suite passed (33 suites / 201 tests).
+After adding the final reserved-folder-name guard, both Save As suites passed
+again (25 tests). Final TypeScript check (`--skipLibCheck`), ESLint on all changed
+TypeScript files and production main/renderer builds passed; main was rebuilt
+after the final guard. `git diff --check` passed. Native dialog and focused-input
+interaction still require the manual editor acceptance below.
+
+### Manual editor acceptance
+
+1. Run `npm run start:dev` on this branch and open a disposable project copy.
+2. Edit an ST or C++ body and its variable declarations without saving. Use
+   File > Save As, enter a new sibling folder name and cancel. Verify that the
+   original path, edited content and unsaved indicator remain.
+3. Repeat and save to a new sibling folder. Verify the new project path, retained
+   open editors and undo functionality. Edit again and use normal Save; only the
+   new project must change. Reopen the new project and verify the contents.
+4. Repeat via Ctrl+Shift+A while the caret is still in a variable declaration or
+   table input. Include global variables, device settings and an FBD/LD edit.
+5. Attempt an existing destination and a destination inside the original project.
+   Neither may be overwritten. Check the original project's files independently.
+6. Compile the copied project including CppBlink. Hardware upload is a separate
+   user-controlled acceptance step; these tests do not upload or flash anything.
+
+No installer, version bump, commit, merge or push is part of this change.
+
+## Print / PDF export (2026-11-20)
+
+Backported the v4.3.0 print engine into `src/utils/print`, adapting its types to
+our existing editor and adding a dedicated main-process print service. Upstream
+attribution, GPL license and font licenses are retained alongside the imported
+sources. PDF dependencies are pinned (`pdf-lib` 1.17.1, `@pdf-lib/fontkit` 1.1.1).
+No compiler, runtime, upload, hardware or debugger code is changed.
+
+File > Print preview / PDF export, Page setup and Print (Ctrl+P) open the same
+selection dialog. It supports A4/A3/Letter/Legal, orientation, margins, scale to
+fit, POU selection, optional globals/tasks/data types and preview zoom. Export
+writes a PDF only after choosing a destination; Print opens the native printer
+dialog. Canceling either operation does not save the project.
+
+Printing takes a detached snapshot of the current editor stores, including
+unsaved text, raw incomplete declarations and current FBD/LD flows. It neither
+parses declarations into the live project nor marks the project saved. Text
+POUs (ST, IL, C++, Python), variables, FBD and LD are supported. SFC is rejected
+explicitly; deselect it to export other POUs. Source text is monochrome rather
+than dependent on the newer upstream language-server implementation.
+
+Local corrections preserve in/out block pins, diagram labels above nodes,
+wrapped diagram comments and long variable values. Preview and PDF share the
+same paginated drawing operations. Preview HTML escapes project text and uses
+a restrictive CSP and sandbox; printing uses a hidden isolated Electron window.
+Input sizes, page dimensions and graph coordinates are bounded. Non-PDF export
+destinations are rejected.
+
+Validation: the complete Jest suite passed (47 suites / 342 tests), including
+existing C++ and Save As coverage. The print suites were rerun after final
+comment rendering changes. TypeScript (`--skipLibCheck`), ESLint and production
+main/renderer builds were checked. An isolated Electron profile and disposable
+synthetic project exercised opening the dialog through native IPC, generating
+preview and exporting a real PDF. The real hidden print window also rendered
+successfully through Chromium printToPDF (substituted for physical printing
+only in the external test harness). Portrait/landscape PDFs with C++, ST, FBD,
+LD, long text and Unicode were rendered and visually inspected. No user PLC
+project, running debugger or device was used. A physical printer remains a
+manual acceptance step.
+
+### Manual print acceptance
+
+1. Start the editor on this branch with `npm run start:dev`; open a project copy.
+2. Change a C++ or ST body without saving. Press Ctrl+P, choose the desired POUs
+   and click Create preview. Confirm that the change appears in the preview.
+3. Use Export PDF, first cancel, then save to a separate `.pdf` file. Check the
+   result in a PDF viewer. The editor's unsaved state and project files must
+   remain unchanged.
+4. Repeat with FBD/LD, a long comment, variables, landscape and Scale to fit.
+5. Use Print and cancel the native printer dialog; then optionally print a page
+   to a real printer. Close the preview and confirm edits and normal Save work.
+6. Compile the test project as the final local regression check. Hardware upload
+   remains a separate user-controlled acceptance step.
+
+No installer, version bump, commit, merge or push is part of this backport.
+
+### Original-style wizard and configuration tables (2026-11-20)
+
+The initial combined print panel is superseded by the v4.3.0 wizard layout:
+selection grouped into Functions / Function Blocks / Programs, separate page
+options, then PDF preview. The modal uses the editor's existing theme and modal
+components, with the original 92vw/92vh layout, button styles, page navigation
+and zoom controls. SFC is excluded with an explicit notice. Configuration can
+be selected independently of POUs. Back preserves selections and page options;
+Cancel leaves the project unchanged.
+
+Preview now renders the exact cached export PDF using the upstream PDF.js
+canvas viewer, loaded only on demand. PDF.js 6.3.289 and its guarded Electron
+compatibility helpers are taken from the same upstream tag. The existing
+isolated native print window remains in place. No general editor, compiler,
+upload or debugger interface was migrated.
+
+Configuration is a dedicated print document, not a synthetic ST POU. It has
+readable tables for globals, tasks, program instances, structure members,
+array dimensions/base types and enumeration values. Values wrap; long tables
+repeat section titles and column headers across pages. Empty sections say
+None. Pending global declaration code remains verbatim to preserve even
+incomplete unsaved edits; it replaces the potentially stale globals table.
+
+The complete Jest suite passed (48 suites / 345 tests). New regressions cover
+configuration formatting, source-state preservation and long table pagination.
+Preview/export PDF identity is checked in the service test. For acceptance,
+use Ctrl+P, choose POUs/configuration, Next, set page options, Next, then Export
+or Print. Verify Back, Cancel, portrait/landscape, zoom and page navigation.
+
+Final visual acceptance used an isolated Electron profile and disposable fixture
+at 1280x900 and 1000x760 logical window bounds: grouped selection, page setup,
+portrait/landscape PDF canvases, light/dark styling, zoom/reset and previous/next
+navigation passed. Canceling export, exporting a real PDF and the hidden native
+print window (Chromium PDF substituted for a physical printer) passed. Source
+files were byte-compared before/after and stayed unchanged. The exported
+configuration page was rendered separately and visually checked. Production
+main/renderer build, TypeScript and ESLint passed. Physical printer acceptance
+remains manual; no user device or debugger was connected.

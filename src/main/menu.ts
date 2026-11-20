@@ -71,6 +71,10 @@ export default class MenuBuilder {
     this.mainWindow.webContents.send('project:save-accelerator')
   }
 
+  handleSaveProjectAs() {
+    this.mainWindow.webContents.send('project:save-as-accelerator')
+  }
+
   handleSaveFile() {
     this.mainWindow.webContents.send('project:save-file-accelerator')
   }
@@ -210,8 +214,7 @@ export default class MenuBuilder {
         {
           label: i18n.t('menu:file.submenu.saveAs'),
           accelerator: 'Cmd+Shift+A',
-          click: () => {},
-          enabled: false,
+          click: () => this.handleSaveProjectAs(),
         },
         {
           label: i18n.t('menu:file.submenu.closeTab'),
@@ -236,17 +239,17 @@ export default class MenuBuilder {
         {
           label: i18n.t('menu:file.submenu.pageSetup'),
           accelerator: 'Cmd+Option+P',
-          enabled: false,
+          click: () => this.mainWindow.webContents.send('print:open'),
         },
         {
           label: i18n.t('menu:file.submenu.preview'),
           accelerator: 'Cmd+Shift+P',
-          enabled: false,
+          click: () => this.mainWindow.webContents.send('print:open'),
         },
         {
           label: i18n.t('menu:file.submenu.print'),
           accelerator: 'Cmd+P',
-          enabled: false,
+          click: () => this.mainWindow.webContents.send('print:open'),
         },
         { type: 'separator' },
         {
@@ -473,7 +476,7 @@ export default class MenuBuilder {
           {
             label: i18n.t('menu:file.submenu.saveAs'),
             accelerator: 'Ctrl+Shift+A',
-            enabled: false,
+            click: () => this.handleSaveProjectAs(),
           },
           {
             label: i18n.t('menu:file.submenu.closeTab'),
@@ -501,18 +504,18 @@ export default class MenuBuilder {
           },
           {
             label: i18n.t('menu:file.submenu.pageSetup'),
-            enabled: false,
+            click: () => this.mainWindow.webContents.send('print:open'),
             accelerator: 'Ctrl+Alt+P',
           },
           {
             label: i18n.t('menu:file.submenu.preview'),
-            enabled: false,
+            click: () => this.mainWindow.webContents.send('print:open'),
             accelerator: 'Ctrl+Shift+P',
           },
           {
             label: i18n.t('menu:file.submenu.print'),
             accelerator: 'Ctrl+P',
-            enabled: false,
+            click: () => this.mainWindow.webContents.send('print:open'),
           },
           { type: 'separator' },
           {

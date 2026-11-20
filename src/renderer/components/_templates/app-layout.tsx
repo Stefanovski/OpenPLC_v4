@@ -7,6 +7,7 @@ import { ComponentPropsWithoutRef, ReactNode, useEffect, useState } from 'react'
 import Toaster from '../_features/[app]/toast/toaster'
 import { ProjectModal } from '../_features/[start]/new-project/project-modal'
 import { ConfirmDeleteElementModal, QuitApplicationModal, SaveChangesModal } from '../_organisms/modals'
+import { PrintDialog } from '../_organisms/print-dialog'
 import { AcceleratorHandler } from './accelerator-handler'
 
 type AppLayoutProps = ComponentPropsWithoutRef<'main'>
@@ -69,6 +70,7 @@ const AppLayout = ({ children, ...rest }: AppLayoutProps): ReactNode => {
             data={modals['confirm-delete-element'].data as ConfirmDeleteModalProps['data']}
           />
         )}
+        <PrintDialog />
         <AcceleratorHandler />
       </main>
     </>

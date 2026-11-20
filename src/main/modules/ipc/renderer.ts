@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
+import type { PrintService } from '@root/main/services/print-service'
 import { CreatePouFileProps, PouServiceResponse } from '@root/types/IPC/pou-service'
-import { CreateProjectFileProps, IProjectServiceResponse } from '@root/types/IPC/project-service'
+import type { PrintRequest } from '@root/types/IPC/print'
+import {
+  CreateProjectFileProps,
+  IProjectServiceResponse,
+  SaveProjectAsResponse,
+  SaveProjectRequest,
+} from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import type {
   IecDebugBreakpoint,
@@ -42,6 +49,16 @@ export type ISaveDataResponse = {
  * Provides various methods for handling project creation, opening, saving, and other operations.
  */
 const rendererProcessBridge = {
+  previewPrint: (request: PrintRequest): ReturnType<PrintService['preview']> =>
+    ipcRenderer.invoke('print:preview', request),
+  exportPrintPdf: (): ReturnType<PrintService['exportPdf']> => ipcRenderer.invoke('print:export-pdf'),
+  printDocument: (): ReturnType<PrintService['print']> => ipcRenderer.invoke('print:printer'),
+  onPrintRequest: (callback: () => void) => {
+    ipcRenderer.on('print:open', callback)
+    return () => {
+      ipcRenderer.removeListener('print:open', callback)
+    }
+  },
   // ===================== PROJECT METHODS =====================
   aboutAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('website:about-accelerator', callback),
   aboutModalAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('about:open-accelerator', callback),
@@ -78,6 +95,14 @@ const rendererProcessBridge = {
   saveFileAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('project:save-file-accelerator', callback),
   saveProject: (dataToWrite: IDataToWrite): Promise<ISaveDataResponse> =>
     ipcRenderer.invoke('project:save', dataToWrite),
+  saveProjectAs: (data: SaveProjectRequest): Promise<SaveProjectAsResponse> =>
+    ipcRenderer.invoke('project:save-as', data),
+  saveProjectAsAccelerator: (callback: IpcRendererCallbacks) => {
+    ipcRenderer.on('project:save-as-accelerator', callback)
+    return () => {
+      ipcRenderer.removeListener('project:save-as-accelerator', callback)
+    }
+  },
   saveProjectAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('project:save-accelerator', callback),
   switchPerspective: (callback: IpcRendererCallbacks) =>
     ipcRenderer.on('workspace:switch-perspective-accelerator', callback),
