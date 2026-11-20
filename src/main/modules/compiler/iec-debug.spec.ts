@@ -47,7 +47,10 @@ describe('IEC debug build helpers', () => {
     const prepared = prepareProjectForIecDebug(project)
 
     expect(prepared.sourceFiles).toEqual([{ fileName: 'main.st', content: 'Counter := Counter + 1;\n' }])
-    expect(prepared.projectData.pous[0].data.body).toEqual({ language: 'st', value: '{#include "main.st"}' })
+    expect(prepared.projectData.pous[0].data.body).toEqual({
+      language: 'st',
+      value: `(* EUROSONIC_SOURCE_SHA256:${createHash('sha256').update('Counter := Counter + 1;\n').digest('hex')} *)\n{#include "main.st"}`,
+    })
     expect(project.pous[0].data.body).toEqual({ language: 'st', value: 'Counter := Counter + 1;' })
   })
 

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { ioLayoutSchema } from '../io-inventory'
+
 const baudRateOptions = ['9600', '14400', '19200', '38400', '57600', '115200'] as const
 
 const interfaceOptions = ['Serial', 'Serial1', 'Serial2', 'Serial3'] as const
@@ -17,6 +19,7 @@ const BYTE_MAC_ADDRESS_REGEX = /^(?:0x[0-9a-f]{2}\s*,\s*){5}0x[0-9a-f]{2}$/i
 
 const deviceConfigurationSchema = z.object({
   deviceBoard: z.string(),
+  ioLayout: ioLayoutSchema.optional(),
   communicationPort: z.string(),
   runtimeIpAddress: z.string().optional(),
   communicationConfiguration: z.object({

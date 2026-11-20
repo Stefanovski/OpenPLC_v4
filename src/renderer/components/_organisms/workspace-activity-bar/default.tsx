@@ -111,6 +111,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const jwtToken = useOpenPLCStore((state) => state.runtimeConnection.jwtToken)
   const runtimeIpAddress = useOpenPLCStore((state) => state.deviceDefinitions.configuration.runtimeIpAddress)
   const isDebuggerVisible = useOpenPLCStore((state) => state.workspace.isDebuggerVisible)
+  const codexDebuggerActive = useOpenPLCStore((state) => state.workspace.codexDebuggerActive)
 
   const applyEarlyCommentWrapping = (projectData: PLCProjectData): PLCProjectData => {
     return {
@@ -355,6 +356,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   }
 
   const verifyAndCompile = async () => {
+    if (useOpenPLCStore.getState().workspace.codexDebuggerActive) return
     if (editingState === 'unsaved') {
       const res = await saveProject({ data: projectData, meta: projectMeta }, deviceDefinitions)
       if (!res.success) {
@@ -412,6 +414,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   }
 
   const handleDebuggerClick = async () => {
+    if (useOpenPLCStore.getState().workspace.codexDebuggerActive) return
     const { workspace, project, deviceDefinitions, workspaceActions, consoleActions, deviceActions } =
       useOpenPLCStore.getState()
 
@@ -1314,7 +1317,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       </TooltipSidebarWrapperButton>
       <TooltipSidebarWrapperButton tooltipContent='Compile'>
         <DownloadButton
-          disabled={isCompiling}
+          disabled={isCompiling || codexDebuggerActive}
           className={cn(isCompiling ? `${disabledButtonClass}` : '')}
           // eslint-disable-next-line @typescript-eslint/no-misused-promises
           onClick={() => verifyAndCompile()}
@@ -1340,7 +1343,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       <TooltipSidebarWrapperButton tooltipContent='Debugger'>
         <DebuggerButton
           onClick={() => void handleDebuggerClick()}
-          disabled={isDebuggerProcessing}
+          disabled={isDebuggerProcessing || codexDebuggerActive}
           isActive={isDebuggerVisible}
           className={cn(isDebuggerProcessing && 'cursor-not-allowed opacity-50')}
         />

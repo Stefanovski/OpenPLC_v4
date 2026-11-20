@@ -183,7 +183,7 @@ class CompilerModule {
 
   private validateFbdVariables(
     projectData: ProjectState['data'],
-    mainProcessPort: MessagePortMain,
+    mainProcessPort: Pick<MessagePortMain, 'start' | 'postMessage' | 'close'>,
     stoppingMessage: string,
   ): boolean {
     const emptyVariables = findEmptyFbdVariables(projectData)
@@ -2362,7 +2362,7 @@ class CompilerModule {
   //STN: Eurosonic Version
   async compileProgram(
     args: Array<string | boolean | null | ProjectState['data']>,
-    _mainProcessPort: MessagePortMain,
+    _mainProcessPort: Pick<MessagePortMain, 'start' | 'postMessage' | 'close'>,
     mainProcessBridge: {
       makeRuntimeApiRequest: <T = void>(
         ipAddress: string,

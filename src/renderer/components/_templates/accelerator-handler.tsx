@@ -231,6 +231,7 @@ const AcceleratorHandler = () => {
     }
 
     window.bridge.deleteFileAccelerator((_event) => {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) return
       handleDelete()
     })
 
@@ -268,6 +269,10 @@ const AcceleratorHandler = () => {
    */
   useEffect(() => {
     window.bridge.handleUndoRequest((_) => {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) {
+        if (document.activeElement instanceof HTMLTextAreaElement) document.execCommand('undo')
+        return
+      }
       if (!meta?.name) {
         return
       }
@@ -280,6 +285,10 @@ const AcceleratorHandler = () => {
   }, [meta.name, isMonacoFocused])
   useEffect(() => {
     window.bridge.handleRedoRequest((_) => {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) {
+        if (document.activeElement instanceof HTMLTextAreaElement) document.execCommand('redo')
+        return
+      }
       if (!meta?.name) {
         return
       }

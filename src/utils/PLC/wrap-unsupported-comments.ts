@@ -85,7 +85,9 @@ export const wrapUnsupportedComments = (value: string): string => {
       return iChar
     })
     .join('')
-  if (commentContext) {
+  // IEC comments are normally closed on the following iteration. At EOF that
+  // iteration does not occur; a complete trailing comment must stay unchanged.
+  if (commentContext && !(commentContext === '(*' && value.endsWith('*)'))) {
     outValue += '*)'
   }
   return outValue
