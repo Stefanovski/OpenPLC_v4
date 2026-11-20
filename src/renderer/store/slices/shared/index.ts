@@ -2,6 +2,7 @@ import { ISaveDataResponse } from '@root/main/modules/ipc/renderer'
 import { toast } from '@root/renderer/components/_features/[app]/toast/use-toast'
 import { DeleteDatatype, DeletePou } from '@root/renderer/components/_organisms/modals'
 import { syncNodesWithVariables, syncNodesWithVariablesFBD } from '@root/renderer/utils/sync-nodes-with-variables'
+import type { SaveProjectAsResponse } from '@root/types/IPC/project-service'
 import { CreateProjectFileProps, IProjectServiceResponse } from '@root/types/IPC/project-service'
 import { PLCVariable as VariablePLC } from '@root/types/PLC'
 import {
@@ -18,6 +19,7 @@ import { parseIecStringToVariables } from '@root/utils/generate-iec-string-to-va
 import { generateIecVariablesToString } from '@root/utils/generate-iec-variables-to-string'
 import { generatePouCopyUniqueName } from '@root/utils/generate-pou-copy-unique-name'
 import { getExtensionFromLanguage } from '@root/utils/PLC/pou-file-extensions'
+import { flushSync } from 'react-dom'
 import { StateCreator } from 'zustand'
 
 import { ConsoleSlice } from '../console'
@@ -35,6 +37,7 @@ import { ProjectSlice, ProjectState } from '../project'
 import { TabsProps, TabsSlice } from '../tabs'
 import { CreateEditorObjectFromTab } from '../tabs/utils'
 import { WorkspaceSlice } from '../workspace'
+import { createSaveProjectAsAction } from './save-project-as'
 import { CreateEditorObject, CreatePouObject } from './utils'
 
 type PropsToCreatePou = {
@@ -81,6 +84,7 @@ export type SharedSlice = {
     createProject: (dataToCreateProjectFile: CreateProjectFileProps) => Promise<BasicSharedSliceResponse>
     // Save project operation
     saveProject: (project: ProjectState, device: DeviceState['deviceDefinitions']) => Promise<ISaveDataResponse>
+    saveProjectAs: () => Promise<SaveProjectAsResponse>
     // File operations
     openFile: (data: TabsProps) => BasicSharedSliceResponse
     closeFile: (name: string) => BasicSharedSliceResponse
@@ -1319,6 +1323,24 @@ export const createSharedSlice: StateCreator<
         success: true,
       }
     },
+
+    saveProjectAs: (() => {
+      const saveAs = createSaveProjectAsAction(getState, _setState, (request) => window.bridge.saveProjectAs(request))
+      return async () => {
+        // Commit focused inputs and flush React's pending editor effects before snapshotting.
+        flushSync(() => {
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        })
+        const result = await saveAs()
+        if (!result.canceled)
+          toast({
+            title: result.success ? 'Project copy saved' : 'Save As failed',
+            description: result.success ? `Saved to ${result.projectPath}` : result.error,
+            variant: result.success ? 'default' : 'fail',
+          })
+        return result
+      }
+    })(),
 
     saveProject: async (
       project: ProjectState,

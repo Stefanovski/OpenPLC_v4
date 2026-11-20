@@ -148,6 +148,7 @@ const sharedSelectors = {
     useOpenPLCStore((state) => state.sharedWorkspaceActions.handleFileAndWorkspaceSavedState),
   useCloseProject: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.closeProject),
   useOpenProject: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.openProject),
+  useSaveProjectAs: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.saveProjectAs),
   useSaveProject: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.saveProject),
   useSaveFile: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.saveFile),
   useCloseFile: () => useOpenPLCStore((state) => state.sharedWorkspaceActions.closeFile),

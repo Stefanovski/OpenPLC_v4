@@ -1,5 +1,7 @@
+import { PrintService } from '@root/main/services/print-service'
 import { getProjectPath } from '@root/main/utils'
 import { CreatePouFileProps } from '@root/types/IPC/pou-service'
+import type { PrintRequest } from '@root/types/IPC/print'
 import { CreateProjectFileProps } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import type {
@@ -457,11 +459,16 @@ class MainProcessBridge implements MainIpcModule {
 
   // ===================== IPC HANDLER REGISTRATION =====================
   setupMainIpcListener() {
+    const printService = new PrintService(this.mainWindow)
+    this.ipcMain.handle('print:preview', (_event, request: PrintRequest) => printService.preview(request))
+    this.ipcMain.handle('print:export-pdf', () => printService.exportPdf())
+    this.ipcMain.handle('print:printer', () => printService.print())
     // Project-related handlers
     this.ipcMain.handle('project:create', this.handleProjectCreate)
     this.ipcMain.handle('project:open', this.handleProjectOpen)
     this.ipcMain.handle('project:path-picker', this.handleProjectPathPicker)
     this.ipcMain.handle('project:save', this.handleProjectSave)
+    this.ipcMain.handle('project:save-as', (_event, data: IDataToWrite) => this.projectService.saveProjectAs(data))
     this.ipcMain.handle('project:save-file', this.handleFileSave)
     this.ipcMain.handle('project:open-by-path', this.handleProjectOpenByPath)
 

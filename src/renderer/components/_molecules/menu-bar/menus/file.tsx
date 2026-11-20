@@ -18,6 +18,7 @@ export const FileMenu = () => {
   const openModal = modalSelectors.useOpenModal()
   const closeProject = sharedSelectors.useCloseProject()
   const openProject = sharedSelectors.useOpenProject()
+  const saveProjectAs = sharedSelectors.useSaveProjectAs()
   const saveProject = sharedSelectors.useSaveProject()
   const saveFile = sharedSelectors.useSaveFile()
   const closeFile = sharedSelectors.useCloseFile()
@@ -76,7 +77,7 @@ export const FileMenu = () => {
               <span>{i18n.t('menu:file.submenu.saveProject')}</span>
               <span className={ACCELERATOR}>{'Ctrl + Shift + S'}</span>
             </MenuPrimitive.Item>
-            <MenuPrimitive.Item className={ITEM} disabled>
+            <MenuPrimitive.Item className={ITEM} disabled={!project.meta.path} onClick={() => void saveProjectAs()}>
               <span>{i18n.t('menu:file.submenu.saveAs')}</span>
               <span className={ACCELERATOR}>{'Ctrl + Shift + A'}</span>
             </MenuPrimitive.Item>
@@ -95,15 +96,27 @@ export const FileMenu = () => {
               <span>{i18n.t('menu:file.submenu.exportToCodesysXml')}</span>
             </MenuPrimitive.Item>
             <MenuPrimitive.Separator className={SEPARATOR} />
-            <MenuPrimitive.Item className={ITEM} disabled>
+            <MenuPrimitive.Item
+              className={ITEM}
+              disabled={!project.meta.path}
+              onClick={() => window.dispatchEvent(new Event('open-print-preview'))}
+            >
               <span>{i18n.t('menu:file.submenu.pageSetup')}</span>
               <span className={ACCELERATOR}>{'Ctrl + Alt + P'}</span>
             </MenuPrimitive.Item>
-            <MenuPrimitive.Item className={ITEM} disabled>
-              <span>{i18n.t('menu:file.submenu.preview')}</span>
+            <MenuPrimitive.Item
+              className={ITEM}
+              disabled={!project.meta.path}
+              onClick={() => window.dispatchEvent(new Event('open-print-preview'))}
+            >
+              <span>Print preview / PDF export</span>
               <span className={ACCELERATOR}>{'Ctrl + Shift + P'}</span>
             </MenuPrimitive.Item>
-            <MenuPrimitive.Item className={ITEM} disabled>
+            <MenuPrimitive.Item
+              className={ITEM}
+              disabled={!project.meta.path}
+              onClick={() => window.dispatchEvent(new Event('open-print-preview'))}
+            >
               <span>{i18n.t('menu:file.submenu.print')}</span>
               <span className={ACCELERATOR}>{'Ctrl + P'}</span>
             </MenuPrimitive.Item>

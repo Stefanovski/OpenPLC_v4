@@ -3,13 +3,15 @@ import {
   CreateProjectFileProps,
   IProjectRecentHistoryEntry,
   IProjectServiceResponse,
+  SaveProjectAsResponse,
+  SaveProjectRequest,
 } from '@root/types/IPC/project-service'
 import { DeviceConfiguration, DevicePin } from '@root/types/PLC/devices'
 import { getExtensionFromLanguage } from '@root/utils/PLC/pou-file-extensions'
 import { serializePouToText } from '@root/utils/PLC/pou-text-serializer'
 import { app, BrowserWindow, dialog } from 'electron'
 import { promises } from 'fs'
-import { basename, dirname, join, normalize } from 'path'
+import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'path'
 
 import { PLCPou, PLCProject } from '../../../types/PLC/open-plc'
 import { i18n } from '../../../utils/i18n'
@@ -234,6 +236,64 @@ class ProjectService {
           }),
           error: error,
         },
+      }
+    }
+  }
+
+  async saveProjectAs(data: SaveProjectRequest): Promise<SaveProjectAsResponse> {
+    let destination: string | undefined
+    try {
+      const source = basename(data.projectPath) === 'project.json' ? dirname(data.projectPath) : data.projectPath
+      if (!source || !isAbsolute(source)) throw new Error('The current project must have an absolute path.')
+      const selection = await dialog.showSaveDialog(this.serviceManager, {
+        title: 'Save project as — enter a NEW folder name',
+        buttonLabel: 'Save project',
+        defaultPath: join(dirname(source), `${basename(source)}-copy`),
+        properties: ['createDirectory', 'showOverwriteConfirmation'],
+      })
+      if (selection.canceled || !selection.filePath) return { success: false, canceled: true }
+      destination = selection.filePath
+      if (!isAbsolute(destination)) throw new Error('Choose an absolute destination path.')
+      // saveProject accepts both folders and a project.json file path. Do not let
+      // a folder with that name redirect its writes into the parent directory.
+      if (basename(destination).toLowerCase() === 'project.json') {
+        throw new Error('Enter a new project folder name, not project.json.')
+      }
+      // Resolve junctions as well as ordinary paths before touching the destination.
+      const sourceReal = await promises.realpath(source)
+      const parentReal = await promises.realpath(dirname(destination))
+      const destinationReal = join(parentReal, basename(destination))
+      const fromSource = relative(sourceReal, destinationReal)
+      if (!fromSource || (!isAbsolute(fromSource) && fromSource !== '..' && !fromSource.startsWith(`..${sep}`))) {
+        throw new Error('Choose a new folder outside the original project.')
+      }
+      for (const pou of data.content.pous) {
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(pou.data.name)) throw new Error('A POU has an invalid file name.')
+      }
+      // Exclusive creation: never overwrite an existing folder, file or symlink.
+      await promises.mkdir(destinationReal)
+      destination = destinationReal
+      await promises.mkdir(join(destination, 'devices'))
+      const projectData = {
+        ...data.content.projectData,
+        data: { ...data.content.projectData.data, deletedPous: [] },
+      }
+      const saved = await this.saveProject({
+        projectPath: destination,
+        content: { ...data.content, projectData },
+      })
+      if (!saved.success) throw new Error(saved.error?.description || 'Could not write the project copy.')
+      // A history failure must not turn a completed save into a reported failure.
+      try {
+        await this.updateProjectHistory(destination)
+      } catch (error) {
+        console.warn('Could not update recent projects after Save As:', error)
+      }
+      return { success: true, projectPath: destination }
+    } catch (error) {
+      return {
+        success: false,
+        error: `${error instanceof Error ? error.message : String(error)}${destination ? ` Destination: ${destination}. Existing destinations are never overwritten; a failed new copy may be incomplete.` : ''}`,
       }
     }
   }

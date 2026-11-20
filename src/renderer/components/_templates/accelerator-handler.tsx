@@ -28,7 +28,15 @@ const AcceleratorHandler = () => {
     deviceDefinitions,
     workspace: { editingState, systemConfigs, close },
     modalActions: { openModal },
-    sharedWorkspaceActions: { closeProject, openProject, openRecentProject, saveFile, saveProject, closeFile },
+    sharedWorkspaceActions: {
+      closeProject,
+      openProject,
+      openRecentProject,
+      saveFile,
+      saveProject,
+      saveProjectAs,
+      closeFile,
+    },
     workspaceActions: { switchAppTheme, toggleMaximizedWindow },
     pouActions: { deleteRequest: deletePouRequest },
     datatypeActions: { deleteRequest: deleteDatatypeRequest },
@@ -177,6 +185,14 @@ const AcceleratorHandler = () => {
       window.bridge.removeSaveProjectAccelerator()
     }
   }, [project, deviceDefinitions])
+
+  useEffect(
+    () =>
+      window.bridge.saveProjectAsAccelerator(() => {
+        void saveProjectAs()
+      }),
+    [saveProjectAs],
+  )
 
   /**
    * ==== File Related Accelerators ====
