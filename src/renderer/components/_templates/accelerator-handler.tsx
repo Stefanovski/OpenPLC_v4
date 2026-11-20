@@ -231,7 +231,7 @@ const AcceleratorHandler = () => {
     }
 
     window.bridge.deleteFileAccelerator((_event) => {
-      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) return
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview], [data-plc-mcp]')) return
       handleDelete()
     })
 
@@ -269,7 +269,7 @@ const AcceleratorHandler = () => {
    */
   useEffect(() => {
     window.bridge.handleUndoRequest((_) => {
-      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview], [data-plc-mcp]')) {
         if (document.activeElement instanceof HTMLTextAreaElement) document.execCommand('undo')
         return
       }
@@ -285,7 +285,7 @@ const AcceleratorHandler = () => {
   }, [meta.name, isMonacoFocused])
   useEffect(() => {
     window.bridge.handleRedoRequest((_) => {
-      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview], [data-plc-mcp]')) {
         if (document.activeElement instanceof HTMLTextAreaElement) document.execCommand('redo')
         return
       }

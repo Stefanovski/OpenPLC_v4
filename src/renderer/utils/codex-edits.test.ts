@@ -111,7 +111,7 @@ test.each(['debugger', 'codexDebugger', 'save', 'stale', 'invalid'])(
     let state = fixture()
     const message = { id: 'edit', role: 'assistant' as const, text: '', proposal: proposal(state) }
     if (mode === 'debugger') state.workspace.isDebuggerVisible = true
-    if (mode === 'codexDebugger') state.workspace.codexDebuggerActive = true
+    if (mode === 'codexDebugger') state.workspace.plcOperationsDebuggerActive = true
     if (mode === 'save') state.workspace.editingState = 'save-request'
     if (mode === 'stale') state.project.data.pous[0].data.documentation = 'new work'
     if (mode === 'invalid') message.proposal.reply.changes[1].name = 'Existing'

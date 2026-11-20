@@ -1,5 +1,9 @@
 import { registerCodexIpc } from '@root/main/services/codex/ipc'
 import { scanIoInventory } from '@root/main/services/io-inventory'
+import { registerMcpIpc } from '@root/main/services/mcp/ipc'
+import { PlcBuildService } from '@root/main/services/plc-operations/build'
+import { PlcDebugger } from '@root/main/services/plc-operations/debugger'
+import { PlcOperationsService } from '@root/main/services/plc-operations/service'
 import { PrintService } from '@root/main/services/print-service'
 import { getProjectPath } from '@root/main/utils'
 import { CreatePouFileProps } from '@root/types/IPC/pou-service'
@@ -62,6 +66,7 @@ class MainProcessBridge implements MainIpcModule {
   pouService
   compilerModule
   hardwareModule
+  private readonly plcOperations: PlcOperationsService
   private debuggerModbusClient: ModbusTcpClient | ModbusRtuClient | null = null
   private debuggerWebSocketClient: WebSocketDebugClient | null = null
   private debuggerTargetIp: string | null = null
@@ -94,6 +99,13 @@ class MainProcessBridge implements MainIpcModule {
     this.pouService = pouService
     this.compilerModule = compilerModule
     this.hardwareModule = hardwareModule
+    this.plcOperations = new PlcOperationsService(
+      new PlcBuildService(compilerModule, join(app.getPath('userData'), 'codex-builds')),
+      new PlcDebugger(),
+      async () =>
+        JSON.parse(await readFile(compilerModule.halsFilePath, 'utf8')) as Record<string, { compiler?: string }>,
+    )
+    mainWindow?.once('closed', () => this.plcOperations.dispose())
   }
 
   // ===================== RUNTIME API HANDLERS =====================
@@ -461,7 +473,8 @@ class MainProcessBridge implements MainIpcModule {
 
   // ===================== IPC HANDLER REGISTRATION =====================
   setupMainIpcListener() {
-    if (this.mainWindow) registerCodexIpc(this.ipcMain, this.mainWindow, this.compilerModule)
+    if (this.mainWindow) registerCodexIpc(this.ipcMain, this.mainWindow, this.plcOperations)
+    if (this.mainWindow) registerMcpIpc(this.ipcMain, this.mainWindow, this.plcOperations)
     let inventoryBusy = false
     this.ipcMain.handle('device:io-inventory', async (_event, host: string) => {
       if (inventoryBusy) return { success: false, error: 'An inventory scan is already running.' }

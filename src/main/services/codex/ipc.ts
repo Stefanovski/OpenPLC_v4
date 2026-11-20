@@ -5,10 +5,7 @@ import { z } from 'zod'
 
 import { codexContextAttachmentSchema } from '../../../types/IPC/codex-context'
 import { codexDebugSnapshotSchema } from '../../../types/IPC/codex-debug'
-import { debugExecuteSchema } from '../../../types/IPC/codex-debug-control'
-import type { CompilerModule } from '../../modules/compiler/compiler-module'
-import { CodexBuildService } from './build'
-import { CodexDebugger } from './debugger'
+import type { PlcOperationsService } from '../plc-operations/service'
 import { startCodexRuntime } from './runtime'
 import { CodexService } from './service'
 
@@ -28,10 +25,7 @@ const sendSchema = z
   })
   .strict()
 
-export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: CompilerModule) {
-  const debuggerService = new CodexDebugger()
-  window.on('closed', () => debuggerService.close())
-  const builds = new CodexBuildService(compiler, join(app.getPath('userData'), 'codex-builds'))
+export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, operations: PlcOperationsService) {
   const profile = join(app.getPath('userData'), 'codex-profile')
   const settingsFile = join(app.getPath('userData'), 'codex-runtime.json')
   const service = new CodexService(
@@ -51,7 +45,7 @@ export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: 
     (state) => {
       if (!window.isDestroyed()) window.webContents.send('codex:state', state)
     },
-    () => debuggerService.context(),
+    () => operations.debugContext(),
   )
   const trusted = (event: IpcMainInvokeEvent) => {
     if (
@@ -67,31 +61,23 @@ export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: 
   })
   ipc.handle('codex:compile', (event, request: unknown) => {
     trusted(event)
-    if (debuggerService.active()) throw new Error('Disconnect the Codex debugger before compiling.')
-    return builds.compile(request)
+    return operations.compile(request)
   })
   ipc.handle('codex:debug-execute', async (event, input: unknown) => {
     trusted(event)
-    if (builds.active()) throw new Error('Wait for the Codex compilation to finish.')
-    const generation = debuggerService.generation()
-    const request = debugExecuteSchema.parse(input)
-    if (request.projectPath !== service.snapshot().projectPath) throw new Error('Active project changed.')
-    const boards = JSON.parse(await readFile(compiler.halsFilePath, 'utf8')) as Record<string, { compiler?: string }>
-    if (!Object.hasOwn(boards, request.board) || boards[request.board].compiler !== 'eurosonic-cli')
-      throw new Error('Active Codex debugging supports Eurosonic Modbus TCP targets only.')
-    if (generation !== debuggerService.generation() || request.projectPath !== service.snapshot().projectPath)
-      throw new Error('Debugger request cancelled or project changed.')
-    if (builds.active()) throw new Error('Wait for the Codex compilation to finish.')
-    return debuggerService.execute(request)
+    return operations.executeDebug(input, 'codex')
   })
   ipc.handle('codex:debug-close', (event) => {
     trusted(event)
-    debuggerService.close()
+    operations.closeDebugger('codex')
   })
   ipc.handle('codex:project', (event, project: unknown) => {
     trusted(event)
-    if (project !== service.snapshot().projectPath) debuggerService.close()
-    return service.run(() => service.selectProject(z.string().min(1).max(4096).nullable().parse(project)))
+    return service.run(() => {
+      const path = z.string().min(1).max(4096).nullable().parse(project)
+      service.selectProject(path)
+      operations.selectProject(path)
+    })
   })
   ipc.handle('codex:send', (event, request: unknown) => {
     trusted(event)
@@ -99,7 +85,7 @@ export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: 
   })
   ipc.handle('codex:action', (event, action: unknown) => {
     trusted(event)
-    if (['disconnect', 'sign-out', 'new-chat', 'stop'].includes(String(action))) debuggerService.close()
+    if (['disconnect', 'sign-out', 'new-chat', 'stop'].includes(String(action))) operations.closeDebugger('codex')
     return service.run(async () => {
       switch (action) {
         case 'connect':
@@ -143,7 +129,7 @@ export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: 
     })
   })
   const dispose = () => {
-    debuggerService.close()
+    operations.closeDebugger('codex')
     service.disconnect()
   }
   app.once('before-quit', dispose)
@@ -155,7 +141,7 @@ export function registerCodexIpc(ipc: IpcMain, window: BrowserWindow, compiler: 
   // A renderer reload must not leave an unseen model response running.
   window.webContents.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
     if (mainFrame && !inPlace) {
-      debuggerService.close()
+      operations.selectProject(null)
       service.selectProject(null)
     }
   })

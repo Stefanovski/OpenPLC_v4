@@ -3,6 +3,7 @@ import type { PrintService } from '@root/main/services/print-service'
 import type { CodexAction, CodexResult, CodexSendRequest, CodexState } from '@root/types/IPC/codex'
 import type { CodexBuildRequest, CodexBuildResult } from '@root/types/IPC/codex-build'
 import type { CodexDebugExecute, CodexDebugResult } from '@root/types/IPC/codex-debug-control'
+import type { McpCapture, McpRequest, McpState } from '@root/types/IPC/mcp'
 import { CreatePouFileProps, PouServiceResponse } from '@root/types/IPC/pou-service'
 import type { PrintRequest } from '@root/types/IPC/print'
 import {
@@ -23,6 +24,8 @@ import type {
   IecDebugVariableValue,
 } from '@root/types/PLC/iec-debug'
 import type { IoScanResult } from '@root/types/PLC/io-inventory'
+import type { PlcBuildRequest, PlcBuildResult } from '@root/types/plc-operations/build'
+import type { PlcDebugExecute, PlcDebugResult } from '@root/types/plc-operations/debugger'
 import { ipcRenderer, IpcRendererEvent } from 'electron'
 
 import { ProjectState } from '../../../renderer/store/slices'
@@ -53,6 +56,26 @@ export type ISaveDataResponse = {
  * Provides various methods for handling project creation, opening, saving, and other operations.
  */
 const rendererProcessBridge = {
+  mcpState: (): Promise<McpState> => ipcRenderer.invoke('mcp:state'),
+  mcpEnable: (path: string): Promise<McpState> => ipcRenderer.invoke('mcp:enable', path),
+  mcpStop: (): Promise<McpState> => ipcRenderer.invoke('mcp:stop'),
+  mcpCaptureResult: (id: string, capture: McpCapture | null): Promise<void> => ipcRenderer.invoke('mcp:capture-result', id, capture),
+  mcpClaim: (id: string): Promise<McpRequest> => ipcRenderer.invoke('mcp:claim', id),
+  mcpComplete: (id: string, success: boolean, value: unknown): Promise<void> => ipcRenderer.invoke('mcp:complete', id, success, value),
+  mcpCancel: (id: string): Promise<void> => ipcRenderer.invoke('mcp:cancel', id),
+  mcpCompile: (id: string, request: PlcBuildRequest): Promise<PlcBuildResult> => ipcRenderer.invoke('mcp:compile', id, request),
+  mcpDebug: (id: string, request: PlcDebugExecute): Promise<PlcDebugResult> => ipcRenderer.invoke('mcp:debug', id, request),
+  mcpDebugClose: (): Promise<void> => ipcRenderer.invoke('mcp:debug-close'),
+  onMcpState: (callback: (state: McpState) => void) => {
+    const listener = (_event: IpcRendererEvent, state: McpState) => callback(state)
+    ipcRenderer.on('mcp:state', listener)
+    return () => { ipcRenderer.removeListener('mcp:state', listener) }
+  },
+  onMcpCapture: (callback: (id: string) => void) => {
+    const listener = (_event: IpcRendererEvent, id: string) => callback(id)
+    ipcRenderer.on('mcp:capture', listener)
+    return () => { ipcRenderer.removeListener('mcp:capture', listener) }
+  },
   codexCompile: (request: CodexBuildRequest): Promise<CodexBuildResult> => ipcRenderer.invoke('codex:compile', request),
   codexGetState: (): Promise<CodexState> => ipcRenderer.invoke('codex:state'),
   codexSetProject: (path: string | null): Promise<CodexResult> => ipcRenderer.invoke('codex:project', path),
