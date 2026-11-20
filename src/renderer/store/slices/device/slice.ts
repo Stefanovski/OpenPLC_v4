@@ -39,6 +39,14 @@ const createDeviceSlice: StateCreator<DeviceSlice, [], [], DeviceSlice> = (setSt
   },
 
   deviceActions: {
+    setIoLayout: (layout) => {
+      setState(
+        produce((state: DeviceSlice) => {
+          state.deviceDefinitions.configuration.ioLayout = layout
+          state.deviceUpdated.updated = true
+        }),
+      )
+    },
     setAvailableOptions: ({ availableBoards, availableCommunicationPorts }): void => {
       setState(
         produce(({ deviceAvailableOptions }: DeviceSlice) => {
@@ -490,6 +498,7 @@ function mergeDeviceConfigWithDefaults(
   defaults: DeviceConfiguration,
 ): DeviceConfiguration {
   return {
+    ioLayout: provided.ioLayout,
     deviceBoard: provided.deviceBoard ?? defaults.deviceBoard,
     communicationPort: provided.communicationPort ?? defaults.communicationPort,
     runtimeIpAddress: provided.runtimeIpAddress ?? defaults.runtimeIpAddress,

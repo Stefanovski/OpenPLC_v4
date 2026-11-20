@@ -17,6 +17,7 @@ import { ResourcesEditor } from '../components/_features/[workspace]/editor/reso
 import { Search } from '../components/_features/[workspace]/search'
 import { VariablesPanel } from '../components/_molecules/variables-panel'
 import AboutModal from '../components/_organisms/about-modal'
+import { WorkspaceCodexSidebar } from '../components/_organisms/codex-sidebar'
 import { Console as ConsoleComponent } from '../components/_organisms/console'
 import { Debugger } from '../components/_organisms/debugger'
 import { Explorer } from '../components/_organisms/explorer'
@@ -36,6 +37,7 @@ import { WorkspaceMainContent, WorkspaceSideContent } from '../components/_templ
 import { Eurosonic } from '../data/library/eurosonic'
 import { StandardFunctionBlocks } from '../data/library/standard-function-blocks'
 import { useOpenPLCStore } from '../store'
+import { debugObservations } from '../utils/codex-debug'
 import { collectGraphicalDebugWatchKeys } from '../utils/graphical-debug'
 import { buildFbDebugInstanceMap } from '../utils/iec-debug'
 import { getVariableSize, parseVariableValue, toNativeIecDebugValue } from '../utils/variable-sizes'
@@ -183,6 +185,7 @@ const WorkspaceScreen = () => {
     }
 
     let active = true
+    const observationSession = debugObservations.begin(useOpenPLCStore.getState())
     let polling = false
     let pollingInterval: NodeJS.Timeout | null = null
     let debugCapabilities = 0
@@ -194,6 +197,7 @@ const WorkspaceScreen = () => {
         const result = await window.bridge.debuggerGetIecStatus()
         if (active && result.success && result.data) {
           workspaceActions.setIecDebugStatus(result.data)
+          debugObservations.status(observationSession, useOpenPLCStore.getState(), result.data)
           if (result.data.state === 1) {
             if (lastIecNavigationHaltRef.current !== result.data.haltCount) {
               // A status request may have been in flight while Continue was pressed. Confirm the halt before
@@ -201,6 +205,7 @@ const WorkspaceScreen = () => {
               const confirmed = await window.bridge.debuggerGetIecStatus()
               if (!active || !confirmed.success || !confirmed.data) return
               workspaceActions.setIecDebugStatus(confirmed.data)
+              debugObservations.status(observationSession, useOpenPLCStore.getState(), confirmed.data)
               if (confirmed.data.state !== 1 || confirmed.data.haltCount !== result.data.haltCount) {
                 workspaceActions.setIecDebugCallStack([])
                 return
@@ -209,7 +214,15 @@ const WorkspaceScreen = () => {
               lastIecNavigationHaltRef.current = confirmed.data.haltCount
               if ((debugCapabilities & IEC_DEBUG_CAP_CALL_STACK) !== 0) {
                 const stack = await window.bridge.debuggerGetIecCallStack()
-                if (active && stack.success && stack.data) workspaceActions.setIecDebugCallStack(stack.data)
+                if (active && stack.success && stack.data) {
+                  workspaceActions.setIecDebugCallStack(stack.data)
+                  debugObservations.stack(
+                    observationSession,
+                    useOpenPLCStore.getState(),
+                    stack.data,
+                    confirmed.data.haltCount,
+                  )
+                }
               }
               const state = useOpenPLCStore.getState()
               const debugPou = state.workspace.iecDebugMetadata?.pous.find(
@@ -289,6 +302,7 @@ const WorkspaceScreen = () => {
     void start()
     return () => {
       active = false
+      debugObservations.end(observationSession)
       if (pollingInterval) clearInterval(pollingInterval)
       workspaceActions.setIecDebugMetadata(null)
       workspaceActions.setIecDebugStatus(null)
@@ -360,6 +374,7 @@ const WorkspaceScreen = () => {
       }
     }
     let pollingActive = true
+    const observationSession = debugObservations.session(useOpenPLCStore.getState())
     let batchSize = 60
 
     if (isRTU && !isTCP) {
@@ -820,9 +835,7 @@ const WorkspaceScreen = () => {
                 .find((variable) => variable.legacy_index === index)
                 ?.type.toLowerCase()
               const outputType =
-                outputVariable.type.definition === 'base-type'
-                  ? outputVariable.type.value.toLowerCase()
-                  : generatedType
+                outputVariable.type.definition === 'base-type' ? outputVariable.type.value.toLowerCase() : generatedType
               if (!outputType || !baseTypeSchema.safeParse(outputType).success) return
 
               addVariableInfo(index, {
@@ -1654,6 +1667,15 @@ const WorkspaceScreen = () => {
 
             batchOffsetRef.current = (stableOffset + stableResult.data.length) % allIndexes.length
             if (isMountedRef.current) {
+              debugObservations.values(
+                observationSession,
+                useOpenPLCStore.getState(),
+                newValues,
+                newUpdatedAt,
+                currentWorkspace.debugVariableUpdatedAt,
+                nextForcedVariables,
+                currentWorkspace.debugVariableIndexes,
+              )
               workspaceActions.setDebugVariableValues(newValues)
               workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
               workspaceActions.setDebugForcedVariables(nextForcedVariables)
@@ -1749,6 +1771,15 @@ const WorkspaceScreen = () => {
         }
 
         if (isMountedRef.current) {
+          debugObservations.values(
+            observationSession,
+            useOpenPLCStore.getState(),
+            newValues,
+            newUpdatedAt,
+            currentWorkspace.debugVariableUpdatedAt,
+            undefined,
+            currentWorkspace.debugVariableIndexes,
+          )
           workspaceActions.setDebugVariableValues(newValues)
           workspaceActions.setDebugVariableUpdatedAt(newUpdatedAt)
         }
@@ -1997,7 +2028,7 @@ const WorkspaceScreen = () => {
     })
   }
   return (
-    <div className='flex h-full w-full bg-brand-dark dark:bg-neutral-950'>
+    <div className='relative flex h-full w-full bg-brand-dark dark:bg-neutral-950'>
       <AboutModal />
       <ConfirmDeviceSwitchModal />
       <RuntimeCreateUserModal />
@@ -2253,6 +2284,7 @@ const WorkspaceScreen = () => {
           </ResizablePanel>
         </ResizablePanelGroup>
       </WorkspaceMainContent>
+      <WorkspaceCodexSidebar />
     </div>
   )
 }

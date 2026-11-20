@@ -192,7 +192,14 @@ export const prepareProjectForIecDebug = (
 
     const source = pou.data.body.value.endsWith('\n') ? pou.data.body.value : `${pou.data.body.value}\n`
     sourceFiles.push({ fileName, content: source })
-    pou.data.body = { language: 'st', value: `{#include "${fileName}"}` }
+    // xml2st's PLC MD5 hashes program.st, not MatIEC's external includes. Bind
+    // each body (including embedded native C++ source) into that identity while
+    // keeping body-local file/line locations and runtime semantics unchanged.
+    const bodyHash = createHash('sha256').update(source).digest('hex')
+    pou.data.body = {
+      language: 'st',
+      value: `(* EUROSONIC_SOURCE_SHA256:${bodyHash} *)\n{#include "${fileName}"}`,
+    }
   }
 
   return { projectData: debugProject, sourceFiles }

@@ -4,6 +4,7 @@ import { MinusIcon, PlusIcon, RefreshIcon } from '@root/renderer/assets'
 import { Checkbox, Label, Select, SelectContent, SelectItem, SelectTrigger } from '@root/renderer/components/_atoms'
 import TableActions from '@root/renderer/components/_atoms/table-actions'
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '@root/renderer/components/_molecules/modal'
+import { IoInventoryPanel } from '@root/renderer/components/_organisms/io-inventory-panel'
 import { DeviceEditorSlot } from '@root/renderer/components/_templates/[editors]'
 import { useOpenPLCStore } from '@root/renderer/store'
 import type { DeviceActions, RuntimeConnection } from '@root/renderer/store/slices/device/types'
@@ -452,6 +453,7 @@ const Board = memo(function () {
         </div>
       </div>
       <hr id='container-split' className='h-[1px] w-full self-stretch bg-brand-light' />
+      {deviceBoard.startsWith('Eurosonic_Gen2') && <IoInventoryPanel />}
 
       {/* <div id='pin-mapping-container' className='flex h-3/5 w-full flex-col gap-4'>
         <div id='pin-mapping-table-header-container' className='flex h-fit w-full justify-between'>

@@ -1,3 +1,5 @@
+import { registerCodexIpc } from '@root/main/services/codex/ipc'
+import { scanIoInventory } from '@root/main/services/io-inventory'
 import { PrintService } from '@root/main/services/print-service'
 import { getProjectPath } from '@root/main/utils'
 import { CreatePouFileProps } from '@root/types/IPC/pou-service'
@@ -459,6 +461,17 @@ class MainProcessBridge implements MainIpcModule {
 
   // ===================== IPC HANDLER REGISTRATION =====================
   setupMainIpcListener() {
+    if (this.mainWindow) registerCodexIpc(this.ipcMain, this.mainWindow, this.compilerModule)
+    let inventoryBusy = false
+    this.ipcMain.handle('device:io-inventory', async (_event, host: string) => {
+      if (inventoryBusy) return { success: false, error: 'An inventory scan is already running.' }
+      inventoryBusy = true
+      try {
+        return await scanIoInventory(host)
+      } finally {
+        inventoryBusy = false
+      }
+    })
     const printService = new PrintService(this.mainWindow)
     this.ipcMain.handle('print:preview', (_event, request: PrintRequest) => printService.preview(request))
     this.ipcMain.handle('print:export-pdf', () => printService.exportPdf())

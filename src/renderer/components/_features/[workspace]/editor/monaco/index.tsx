@@ -518,6 +518,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   useEffect(() => {
     if (!isIecDebugSession) return
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (document.activeElement?.closest('#codex-sidebar, [data-codex-context-preview]')) return
       const line = editorRef.current?.getPosition()?.lineNumber
       if (event.key === 'F9' && line) {
         event.preventDefault()

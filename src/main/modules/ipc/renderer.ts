@@ -1,5 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return */
 import type { PrintService } from '@root/main/services/print-service'
+import type { CodexAction, CodexResult, CodexSendRequest, CodexState } from '@root/types/IPC/codex'
+import type { CodexBuildRequest, CodexBuildResult } from '@root/types/IPC/codex-build'
+import type { CodexDebugExecute, CodexDebugResult } from '@root/types/IPC/codex-debug-control'
 import { CreatePouFileProps, PouServiceResponse } from '@root/types/IPC/pou-service'
 import type { PrintRequest } from '@root/types/IPC/print'
 import {
@@ -19,6 +22,7 @@ import type {
   IecDebugVariableRequest,
   IecDebugVariableValue,
 } from '@root/types/PLC/iec-debug'
+import type { IoScanResult } from '@root/types/PLC/io-inventory'
 import { ipcRenderer, IpcRendererEvent } from 'electron'
 
 import { ProjectState } from '../../../renderer/store/slices'
@@ -49,6 +53,23 @@ export type ISaveDataResponse = {
  * Provides various methods for handling project creation, opening, saving, and other operations.
  */
 const rendererProcessBridge = {
+  codexCompile: (request: CodexBuildRequest): Promise<CodexBuildResult> => ipcRenderer.invoke('codex:compile', request),
+  codexGetState: (): Promise<CodexState> => ipcRenderer.invoke('codex:state'),
+  codexSetProject: (path: string | null): Promise<CodexResult> => ipcRenderer.invoke('codex:project', path),
+  codexAction: (action: CodexAction): Promise<CodexResult> => ipcRenderer.invoke('codex:action', action),
+  codexSend: (request: CodexSendRequest): Promise<CodexResult> => ipcRenderer.invoke('codex:send', request),
+  codexDebugExecute: (request: CodexDebugExecute): Promise<CodexDebugResult> =>
+    ipcRenderer.invoke('codex:debug-execute', request),
+  codexDebugClose: (): Promise<void> => ipcRenderer.invoke('codex:debug-close'),
+  codexSelectRuntime: (): Promise<CodexResult> => ipcRenderer.invoke('codex:select-runtime'),
+  onCodexState: (callback: (state: CodexState) => void) => {
+    const listener = (_event: IpcRendererEvent, state: CodexState) => callback(state)
+    ipcRenderer.on('codex:state', listener)
+    return () => {
+      ipcRenderer.removeListener('codex:state', listener)
+    }
+  },
+  readIoInventory: (host: string): Promise<IoScanResult> => ipcRenderer.invoke('device:io-inventory', host),
   previewPrint: (request: PrintRequest): ReturnType<PrintService['preview']> =>
     ipcRenderer.invoke('print:preview', request),
   exportPrintPdf: (): ReturnType<PrintService['exportPdf']> => ipcRenderer.invoke('print:export-pdf'),

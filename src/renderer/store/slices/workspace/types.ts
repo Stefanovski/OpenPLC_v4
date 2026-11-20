@@ -25,6 +25,7 @@ const workspaceStateSchema = z.object({
     isModalOpen: z.array(z.object({ modalName: z.string(), modalState: z.boolean() })),
     discardChanges: z.boolean(),
     isDebuggerVisible: z.boolean(),
+    codexDebuggerActive: z.boolean().optional(),
     debuggerTargetIp: z.string().nullable(),
     debugVariableIndexes: z.custom<Map<string, number>>((val) => val instanceof Map),
     debugVariableValues: z.custom<Map<string, string>>((val) => val instanceof Map),

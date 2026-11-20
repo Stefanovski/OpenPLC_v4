@@ -5,6 +5,7 @@ import {
   interfaceOptions,
   staticHostConfigurationSchema,
 } from '@root/types/PLC/devices'
+import { ioLayoutSchema } from '@root/types/PLC/io-inventory'
 import z from 'zod'
 
 /**
@@ -150,6 +151,7 @@ const deviceActionSchema = z.object({
     .args(z.object({ tcpWifiSSID: z.string(), tcpWifiPassword: z.string() }).partial())
     .returns(z.void()),
   setStaticHostConfiguration: z.function().args(staticHostConfigurationSchema.partial()).returns(z.void()),
+  setIoLayout: z.function().args(ioLayoutSchema).returns(z.void()),
   setCompileOnly: z.function().args(z.boolean()).returns(z.void()),
   setRuntimeIpAddress: z.function().args(z.string()).returns(z.void()),
   setRuntimeJwtToken: z.function().args(z.string().nullable()).returns(z.void()),

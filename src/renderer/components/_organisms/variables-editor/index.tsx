@@ -211,6 +211,12 @@ const VariablesEditor = () => {
 
     const onDocMouseDown = (e: MouseEvent) => {
       if (!containerRef.current) return
+      // Codex captures pending declarations verbatim; opening/reviewing it must not commit them on blur.
+      if (
+        e.target instanceof Element &&
+        e.target.closest('#codex-sidebar, [data-codex-context-preview], [aria-controls="codex-sidebar"]')
+      )
+        return
 
       const isInside = containerRef.current.contains(e.target as Node)
       if (isInside) return
