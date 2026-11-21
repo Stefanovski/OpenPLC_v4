@@ -23,7 +23,7 @@ import type {
   IecDebugVariableRequest,
   IecDebugVariableValue,
 } from '@root/types/PLC/iec-debug'
-import type { IoScanResult } from '@root/types/PLC/io-inventory'
+import type { IoRescanResult, IoScanResult } from '@root/types/PLC/io-inventory'
 import type { PlcBuildRequest, PlcBuildResult } from '@root/types/plc-operations/build'
 import type { PlcDebugExecute, PlcDebugResult } from '@root/types/plc-operations/debugger'
 import { ipcRenderer, IpcRendererEvent } from 'electron'
@@ -92,6 +92,7 @@ const rendererProcessBridge = {
       ipcRenderer.removeListener('codex:state', listener)
     }
   },
+  rescanIoHardware: (host: string): Promise<IoRescanResult> => ipcRenderer.invoke('device:io-rescan', host),
   readIoInventory: (host: string): Promise<IoScanResult> => ipcRenderer.invoke('device:io-inventory', host),
   previewPrint: (request: PrintRequest): ReturnType<PrintService['preview']> =>
     ipcRenderer.invoke('print:preview', request),

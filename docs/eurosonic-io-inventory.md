@@ -1,17 +1,17 @@
-# Eurosonic IO inventory (first stage)
+# Eurosonic IO inventory and manual scan
 
-Configuration > Board Settings now includes a read-only inventory panel for
+Configuration > Board Settings includes an IO inventory panel for
 Eurosonic_Gen2 targets. It reads physical slots 1..7 using the same firmware
 metadata contract consumed by ES_GEN2_APP. A separate short-lived Modbus TCP
 connection (port 502, unit ID 1, FC04 only) leaves debugger connections intact.
-No output, mode, flash, upload or firmware configuration command is sent.
+The read-only path sends no output, mode, flash, upload or firmware configuration command.
+The explicit scan/activation path is described below.
 
 ## Sources and addressing
 
 Verified against ES_GEN2_APP README.md and lib/features/generator/models/
 io_module_state.dart, and ESSTM_H7_M7 docs/IO_MODULE_REGISTERS.md,
-src/CModuleInventory.h and src/CFieldbusModule.h. No changes were made in those
-repositories. Metadata for slot s is at PDU address 1094+(s-1)*100, six words:
+src/CModuleInventory.h and src/CFieldbusModule.h. Metadata for slot s is at PDU address 1094+(s-1)*100, six words:
 version, ident low, ident high, register count, communication OK, module type.
 Known types: 1 DIO, 2 AI, 3 AO. Ident is a model ID, not a serial number.
 Unknown types are retained but have no invented channel map.
@@ -35,7 +35,7 @@ PLC addresses. The detected snapshot remains transient.
 The panel distinguishes match, missing/additional/different modules,
 communication loss and unverified data. Failed/partial reads never replace the
 last snapshot with an empty inventory. A snapshot expires after 30 seconds;
-Read hardware refreshes it. No background polling or hot-plug scan is implied.
+Read inventory only refreshes it. There is no background hardware discovery.
 Firmware inventories cards at startup; its communication flag is not a
 freshness counter. All-zero metadata cannot distinguish an empty installation
 from older firmware without the metadata extension: it is displayed as
@@ -72,3 +72,65 @@ verified missing/additional modules, channel addresses, cancellation/adoption,
 and disabled adoption after a failed read. Project files remained byte-identical
 through these unsaved operations. The resulting panel was visually inspected.
 Actual generator acceptance remains manual; local tests use simulated hardware.
+
+## Manual scan and activation
+
+The single **Read hardware…** button opens a choice:
+- **Read inventory only** retains the FC04-only behavior, including older firmware.
+- **Scan and activate** explicitly starts a scan in matching M7 firmware and then
+  reads the resulting inventory. The dialog names the target IP and explains that
+  new outputs immediately follow current PLC output values. Cancel does nothing.
+
+This is an additive scan for cards powered after boot, not general hot swapping.
+Known slot identities, process addresses, the expected project layout, unsaved
+code, PLC mode and debugger sessions are retained. Firmware accepts DIO/AI/AO
+payloads of 1/4/5 registers. Different cards in known slots or unsupported payloads
+reject the whole addition. Missing known cards remain visible as communication
+loss. No compile, save, download, PLC start/stop or automatic refactoring occurs.
+
+New cards participate in the same FPGA/PLC IO synchronization as boot-detected
+cards. Anybus/PROFINET mappings remain immutable until the next generator boot;
+the result lists these PLC-only slots. The scan is not exposed to Codex/MCP.
+
+Transport: independent Modbus TCP connection, unit 1, custom FC 0x47, protocol v1.
+A read-only status probe precedes a single START with a random nonzero request
+ID; bounded polling waits for that ID, then seven FC04 reads refresh the panel.
+There is no automatic START retry after a timeout. Old firmware receives no START.
+If the connection fails after START, activation may have completed; the UI marks
+old data stale and asks for a read before retrying. Firmware requires an authenticated ESAPP/WebApp or OLED session with the
+configured PLC run-mode write permission (reference 43001, normally role 2).
+An OLED or open configuration menu is not required. General Modbus register
+permissions remain unchanged. No new stored credentials are used.
+Protocol details and firmware tests: companion M7 `docs/IO_RESCAN.md`.
+
+### Hardware acceptance (requires the new M7 image)
+
+1. Use a safe test setup with the ESDIO supply off at generator boot. Keep the
+   existing PLC project; use a known blink output in that card's slot.
+2. Open Read hardware… > Read inventory only: the slot must be empty.
+3. Supply the ESDIO and wait for card startup. A read alone still shows the cached
+   inventory. Choose Read hardware… > Scan and activate and confirm the target.
+4. Verify the slot, communication OK and channel addresses. The PLC blink must
+   reach the real LED/output without another PLC download. Check other modules,
+   all configured PLC task periods and debugger observation remain functional.
+5. Repeat the scan: no new modules, no duplicated mapping or changed addresses.
+6. Remove only the test card's supply: the known module must show communication
+   loss. Restore it: the existing module recovers without a new object/scan.
+7. Confirm reading/cancelling does not change project files or unsaved code.
+
+Automated rescan validation uses simulated devices. Subsequent physical
+late-power recovery was verified on 2026-11-21 as summarized below; worst-case
+production cycle timing remains a separate measurement.
+
+Local validation for manual rescan: the existing 70 suites (584 tests) passed;
+the two new suites (18 tests) passed after fixing their test setup. TypeScript
+with skipLibCheck, targeted ESLint and production main/renderer builds passed.
+The companion M7 native handler test and Debug build also passed. These automated checks did not flash firmware or activate real outputs.
+Subsequent ST-Link device testing is recorded in the companion M7
+`docs/IO_RESCAN.md`. The real cold-start/late-power test passed for AO slot 1
+and AI slot 3 while DIO slot 2 remained active. ESAPP authentication worked
+without an OLED; analog input/feedback data reached the process image, repeated
+scans added nothing, and the operator confirmed unchanged DIO blinking. The
+actual TypeScript rescan service also passed against the device. The PLC flash
+region remained byte-identical. No nonzero analog output command or calibrated
+analog measurement was performed.

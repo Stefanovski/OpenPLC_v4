@@ -26,6 +26,8 @@ export function IoInventoryPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [now, setNow] = useState(Date.now())
+  const [rescanConfirm, setRescanConfirm] = useState(false)
+  const [scanMessage, setScanMessage] = useState('')
   const [confirm, setConfirm] = useState(false)
   const [selected, setSelected] = useState(1)
   const epoch = useRef(0)
@@ -44,6 +46,8 @@ export function IoInventoryPanel() {
     )
     setBusy(false)
     setConfirm(false)
+    setRescanConfirm(false)
+    setScanMessage('')
     setHost(initialHost)
     return () => {
       epoch.current++
@@ -55,7 +59,9 @@ export function IoInventoryPanel() {
     return () => clearInterval(timer)
   }, [])
   const fresh = !!snapshot && snapshot.host === host && now - snapshot.readAt < 30000 && !error && snapshot.verified
-  const scan = async () => {
+  const scan = async (activate = false) => {
+    if (busy) return
+    setRescanConfirm(false)
     const generation = ++epoch.current
     const scanId = beginIoObservation({
       projectPath: project.meta.path,
@@ -67,13 +73,26 @@ export function IoInventoryPanel() {
     observationId.current = scanId
     setBusy(true)
     setError('')
+    setScanMessage('')
     try {
-      const result = await window.bridge.readIoInventory(host)
+      const activation = activate ? await window.bridge.rescanIoHardware(host) : undefined
+      const result = activation ?? (await window.bridge.readIoInventory(host))
       if (generation !== epoch.current) return
       if (result.success) {
         finishIoObservation(scanId, result.inventory)
         setSnapshot(result.inventory)
         setNow(Date.now())
+        if (activation?.success) {
+          const added = activation.addedSlots.length
+            ? `Activated slots: ${activation.addedSlots.join(', ')}.`
+            : 'Scan completed; no new modules.'
+          setScanMessage(
+            added +
+              (activation.plcOnlySlots.length
+                ? ` Slots ${activation.plcOnlySlots.join(', ')} are available to the PLC; Anybus / PROFINET mapping requires a generator restart.`
+                : ''),
+          )
+        }
       } else {
         finishIoObservation(scanId)
         setError(result.error)
@@ -138,11 +157,13 @@ export function IoInventoryPanel() {
               setHost(e.target.value)
               setSnapshot(undefined)
               setError('')
+              setScanMessage('')
+              setRescanConfirm(false)
             }}
           />
         </label>
-        <button className={button} disabled={busy || !host} onClick={() => void scan()}>
-          {busy ? 'Reading…' : 'Read hardware'}
+        <button className={button} disabled={busy || !host} onClick={() => setRescanConfirm(true)}>
+          {busy ? 'Reading…' : 'Read hardware…'}
         </button>
         <button
           className={button}
@@ -152,9 +173,10 @@ export function IoInventoryPanel() {
           Use detected layout…
         </button>
       </div>
+      {scanMessage && <p role='status'>{scanMessage}</p>}
       <p role='status'>
         {error
-          ? `Read failed: ${error}. Previous data is not current.`
+          ? `IO operation failed: ${error}. Previous data is not current.`
           : snapshot
             ? `Read ${new Date(snapshot.readAt).toLocaleTimeString()} from ${snapshot.host}${!snapshot.verified ? ' — all metadata is zero: empty hardware and unsupported firmware cannot be distinguished.' : !fresh ? ' — snapshot expired; read hardware again.' : ' — verified inventory format v1.'}`
             : 'No hardware read yet. The project layout remains available offline.'}
@@ -245,9 +267,33 @@ export function IoInventoryPanel() {
         </p>
       </div>
       <p className='text-neutral-500'>
-        Read-only inventory; no output writes or PLC mode changes. Firmware scans the cards at startup; this button
-        reads that inventory and does not initiate a hot-plug scan.
+        Read hardware retrieves the current inventory. Scan and activate detects powered modules in previously empty
+        slots and enables their PLC IO exchange. Project addresses and expected layout are only changed separately.
       </p>
+      <Modal open={rescanConfirm} onOpenChange={setRescanConfirm}>
+        <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto'>
+          <ModalTitle>Read IO hardware</ModalTitle>
+          <p className='text-sm'>
+            Scan generator {host} for newly powered cards. New output cards will use the current PLC output values
+            immediately. Existing modules and PLC run mode are retained. No compilation or PLC download is performed.
+          </p>
+          <p className='text-sm'>
+            This adds cards to empty slots; replacing a known card requires a restart. New cards are available to the
+            PLC immediately; Anybus / PROFINET mapping is updated at the next generator start.
+          </p>
+          <div className='flex justify-end gap-2'>
+            <button className={button} onClick={() => setRescanConfirm(false)}>
+              Cancel
+            </button>
+            <button className={button} disabled={busy || !host} onClick={() => void scan()}>
+              Read inventory only
+            </button>
+            <button className={button} disabled={busy || !host} onClick={() => void scan(true)}>
+              Scan and activate
+            </button>
+          </div>
+        </ModalContent>
+      </Modal>
       <Modal open={confirm} onOpenChange={setConfirm}>
         <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto'>
           <ModalTitle>Use detected IO layout?</ModalTitle>

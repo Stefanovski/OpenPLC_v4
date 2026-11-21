@@ -138,7 +138,7 @@ const CodexSidebar = ({ projectName, projectPath }: { projectName: string; proje
         }}
         className={
           open
-            ? 'm-2 ml-0 flex h-[calc(100%-1rem)] w-80 max-w-[45%] shrink-0 flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white font-caption text-neutral-950 xl:w-96 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100'
+            ? 'm-2 ml-0 flex h-[calc(100%-1rem)] w-80 max-w-[45%] shrink-0 flex-col overflow-hidden bg-white font-caption text-neutral-950 xl:w-96 dark:bg-neutral-950 dark:text-neutral-100'
             : 'hidden'
         }
       >
