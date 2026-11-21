@@ -5,7 +5,7 @@ import { sharedSelectors } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { TaskType } from '@root/renderer/store/slices'
 import { PLCTask } from '@root/types/PLC/open-plc'
-import { cn } from '@root/utils'
+import { cn, isEurosonicTarget } from '@root/utils'
 import { parseResourceConfigurationToString } from '@root/utils/parse-resource-configuration-to-string'
 import { parseResourceStringToConfiguration } from '@root/utils/parse-resource-string-to-configuration'
 import { useEffect, useState } from 'react'
@@ -36,6 +36,11 @@ const TaskEditor = () => {
   } = useOpenPLCStore()
 
   const handleFileAndWorkspaceSavedState = sharedSelectors.useHandleFileAndWorkspaceSavedState()
+  const isEurosonic = useOpenPLCStore((state) =>
+    isEurosonicTarget(
+      state.deviceAvailableOptions.availableBoards.get(state.deviceDefinitions.configuration.deviceBoard),
+    ),
+  )
 
   const [taskData, setTaskData] = useState<PLCTask[]>([])
   const [editorCode, setEditorCode] = useState(() => parseResourceConfigurationToString(taskData, instances))
@@ -132,6 +137,7 @@ const TaskEditor = () => {
 
   const handleCreateTask = () => {
     if (editorTasks.display === 'code') return
+    if (isEurosonic && taskData.length >= 3) return
 
     addSnapshot(editor.meta.name)
 
@@ -222,6 +228,7 @@ const TaskEditor = () => {
       addSnapshot(editor.meta.name)
 
       const { instances, tasks } = parseResourceStringToConfiguration(editorCode)
+      if (isEurosonic && tasks.length > 3) throw new Error('Eurosonic supports at most three PLC tasks.')
 
       const response = setInstances({
         instances,
@@ -275,7 +282,7 @@ const TaskEditor = () => {
                   {
                     ariaLabel: 'Add Tasks table row button',
                     onClick: handleCreateTask,
-                    disabled: isDebuggerVisible,
+                    disabled: isDebuggerVisible || (isEurosonic && taskData.length >= 3),
                     icon: <PlusIcon className='!stroke-brand' />,
                     id: 'add-task-button',
                   },
@@ -342,6 +349,13 @@ const TaskEditor = () => {
         </div>
       </div>
 
+      {isEurosonic && (
+        <p className='text-sm text-neutral-600 dark:text-neutral-400'>
+          Up to 3 cyclic PLC tasks. Lower priority numbers run first. Additional tasks start only when configured.
+          Multiple tasks require matching M7 firmware. Statement debugging serializes scans; test cycle timing with a
+          normal build.
+        </p>
+      )}
       {editorTasks.display === 'table' && (
         <div aria-label='Tasks editor table container' className='' style={{ scrollbarGutter: 'stable' }}>
           <TaskTable

@@ -59,6 +59,11 @@ SECTIONS
     {
         KEEP(*(.storage_interface_section))
     } > FLASH
+    .task_interface_section 0x081C0900 : ALIGN(4)
+    {
+        KEEP(*(.task_interface_section))
+    } > FLASH
+    ASSERT(SIZEOF(.task_interface_section) <= 0x100, "PLC task ABI exceeds reserved space")
 	.text :
 	{
 		. = ALIGN(4);

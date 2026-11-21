@@ -1,5 +1,6 @@
 import os
 from generate_storage import update_storage
+from generate_tasks import update_tasks
 
 def update_Config0h():
     # Define the line to be added
@@ -195,3 +196,4 @@ if __name__ == "__main__":
     update_debugc()
     update_glueVars()
     update_storage()
+    update_tasks()
