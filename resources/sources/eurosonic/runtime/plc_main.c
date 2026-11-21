@@ -5,7 +5,6 @@
 #include <debug.h>
 #include "iec_std_lib.h"
 
-extern IEC_TIME __CURRENT_TIME;
 extern IEC_BOOL __DEBUG;
 extern unsigned long long common_ticktime__;
 
@@ -103,6 +102,9 @@ void init_plc(unsigned long long *pcommon_ticktime)
 void run_plc(void(*update_inputs)(void), void(*update_outputs)(void))
 {
 	extern int plc_storage_ready(void);
+	extern int plc_tasks_required(void) __attribute__((weak));
+	/* Multi-task images require the explicit host binding and task entry point. */
+	if (plc_tasks_required && plc_tasks_required()) return;
 	// New PLC images require the matching host ABI, never run silently without RETAIN.
 	if (!plc_storage_ready()) return;
 	// read input image

@@ -1,5 +1,15 @@
 # Local Codex integration
 
+The underlying project, edit/undo, compile/repair and debugger operations now live
+in provider-independent modules. Codex retains its account/chat protocol and
+delegates through compatibility adapters. See [PLC operations](plc-operations.md)
+for the boundaries, shared guards and requirements for provider adapters.
+
+An optional [local MCP server](mcp-integration.md) is now available for external
+clients. It uses separate host-reviewed requests and shared operations; the Codex
+account/chat integration continues through its existing adapter. Debugger sessions
+are owned by their adapter, so MCP and Codex cannot take over each other's session.
+
 ## Current scope
 
 The docked sidebar supports browser sign-in, account status, model selection,

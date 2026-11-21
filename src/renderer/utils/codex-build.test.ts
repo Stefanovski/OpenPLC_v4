@@ -184,7 +184,7 @@ test('rejects debugger, saving, incomplete declarations and unsupported targets 
   for (const mode of ['debugger', 'codexDebugger', 'saving', 'declarations', 'target']) {
     const { deps, state } = harness()
     if (mode === 'debugger') state.workspace.isDebuggerVisible = true
-    if (mode === 'codexDebugger') state.workspace.codexDebuggerActive = true
+    if (mode === 'codexDebugger') state.workspace.plcOperationsDebuggerActive = true
     if (mode === 'saving') state.workspace.editingState = 'save-request'
     if (mode === 'target') state.deviceDefinitions.configuration.deviceBoard = 'other'
     if (mode === 'declarations' && state.editor.type === 'plc-textual')
