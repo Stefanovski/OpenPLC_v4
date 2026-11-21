@@ -352,8 +352,6 @@ const TaskEditor = () => {
       {isEurosonic && (
         <p className='text-sm text-neutral-600 dark:text-neutral-400'>
           Up to 3 cyclic PLC tasks. Lower priority numbers run first. Additional tasks start only when configured.
-          Multiple tasks require matching M7 firmware. Statement debugging serializes scans; test cycle timing with a
-          normal build.
         </p>
       )}
       {editorTasks.display === 'table' && (
