@@ -1,5 +1,6 @@
 import { registerCodexIpc } from '@root/main/services/codex/ipc'
 import { scanIoInventory } from '@root/main/services/io-inventory'
+import { rescanIoHardware } from '@root/main/services/io-rescan'
 import { registerMcpIpc } from '@root/main/services/mcp/ipc'
 import { PlcBuildService } from '@root/main/services/plc-operations/build'
 import { PlcDebugger } from '@root/main/services/plc-operations/debugger'
@@ -481,6 +482,15 @@ class MainProcessBridge implements MainIpcModule {
       inventoryBusy = true
       try {
         return await scanIoInventory(host)
+      } finally {
+        inventoryBusy = false
+      }
+    })
+    this.ipcMain.handle('device:io-rescan', async (_event, host: string) => {
+      if (inventoryBusy) return { success: false, error: 'An inventory scan is already running.' }
+      inventoryBusy = true
+      try {
+        return await rescanIoHardware(host)
       } finally {
         inventoryBusy = false
       }

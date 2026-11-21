@@ -65,3 +65,7 @@ export function ioChannels(slot: number, type: number): { channel: number; input
     }))
   return []
 }
+
+export type IoRescanResult =
+  | { success: true; inventory: IoInventory; addedSlots: number[]; plcOnlySlots: number[] }
+  | { success: false; error: string }
