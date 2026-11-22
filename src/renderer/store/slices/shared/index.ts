@@ -1834,6 +1834,7 @@ export const createSharedSlice: StateCreator<
   },
   snapshotActions: {
     addSnapshot: (pouName) => {
+      if (pouName === 'Resource') pouName = 'resource'
       const ladderFlows = getState().ladderFlows
       const fbdFlows = getState().fbdFlows
       const resource = getState().project.data.configuration.resource
@@ -1867,6 +1868,7 @@ export const createSharedSlice: StateCreator<
         ladderFlow: undefined,
         fbdFlow: undefined,
         globalVariables: [],
+        globalVariableLists: structuredClone(getState().project.data.globalVariableLists),
         tasks: [],
         instances: [],
         dataTypes: undefined,
@@ -1906,6 +1908,7 @@ export const createSharedSlice: StateCreator<
       getState().historyActions.addPastHistory(pouName, snapshot)
     },
     undo: (pouName) => {
+      if (pouName === 'Resource') pouName = 'resource'
       const ladderFlows = getState().ladderFlows
       const fbdFlows = getState().fbdFlows
       const resource = getState().project.data.configuration.resource
@@ -1936,6 +1939,7 @@ export const createSharedSlice: StateCreator<
             : undefined,
         fbdFlow:
           fbdIndex !== -1 ? (JSON.parse(JSON.stringify(fbdFlows[fbdIndex])) as HistorySnapshot['fbdFlow']) : undefined,
+        globalVariableLists: structuredClone(getState().project.data.globalVariableLists),
         globalVariables: globalVariables.length
           ? (JSON.parse(JSON.stringify(globalVariables)) as HistorySnapshot['globalVariables'])
           : [],
@@ -1962,6 +1966,7 @@ export const createSharedSlice: StateCreator<
       if (isResource) {
         const { setGlobalVariables, setTasks, setInstances } = getState().projectActions
 
+        getState().projectActions.setGlobalVariableLists(previous.globalVariableLists)
         setGlobalVariables({ variables: (previous?.globalVariables ?? []) as PLCVariable[] })
         setTasks({ tasks: previous?.tasks ?? [] })
         setInstances({ instances: previous?.instances ?? [] })
@@ -2009,6 +2014,7 @@ export const createSharedSlice: StateCreator<
       }
     },
     redo: (pouName) => {
+      if (pouName === 'Resource') pouName = 'resource'
       const ladderFlows = getState().ladderFlows
       const fbdFlows = getState().fbdFlows
       const resource = getState().project.data.configuration.resource
@@ -2039,6 +2045,7 @@ export const createSharedSlice: StateCreator<
             : undefined,
         fbdFlow:
           fbdIndex !== -1 ? (JSON.parse(JSON.stringify(fbdFlows[fbdIndex])) as HistorySnapshot['fbdFlow']) : undefined,
+        globalVariableLists: structuredClone(getState().project.data.globalVariableLists),
         globalVariables: globalVariables.length
           ? (JSON.parse(JSON.stringify(globalVariables)) as HistorySnapshot['globalVariables'])
           : [],
@@ -2049,7 +2056,7 @@ export const createSharedSlice: StateCreator<
           : undefined,
       }
 
-      getState().historyActions.addPastHistory(pouName, currentSnapshot)
+      getState().historyActions.addRedoPastHistory(pouName, currentSnapshot)
 
       const next = getState().historyActions.popFutureHistory(pouName)
 
@@ -2065,6 +2072,7 @@ export const createSharedSlice: StateCreator<
       if (isResource) {
         const { setGlobalVariables, setTasks, setInstances } = getState().projectActions
 
+        getState().projectActions.setGlobalVariableLists(next.globalVariableLists)
         setGlobalVariables({ variables: (next?.globalVariables ?? []) as PLCVariable[] })
         setTasks({ tasks: next?.tasks ?? [] })
         setInstances({ instances: next?.instances ?? [] })

@@ -4,6 +4,7 @@ import { join } from 'path'
 import { plcBuildRequestSchema, PlcBuildResult } from '../../../types/plc-operations/build'
 import { addCppLocalVariables } from '../../../utils/cpp/addCppLocalVariables'
 import { generateEurosonicCppST, validateEurosonicCpp } from '../../../utils/cpp/eurosonic'
+import { lowerGlobalVariableLists } from '../../../utils/PLC/global-variable-lists'
 import { wrapUnsupportedComments } from '../../../utils/PLC/wrap-unsupported-comments'
 import type { CompilerModule } from '../../modules/compiler/compiler-module'
 
@@ -38,6 +39,7 @@ export class PlcBuildService {
         throw new Error('PLC compilation currently supports Eurosonic targets only.')
       if (request.data.pous.some((p) => p.data.body.language === 'python'))
         throw new Error('Projects with Python POUs are not supported by PLC compilation yet.')
+      request.data = lowerGlobalVariableLists(request.data)
       const originals = request.data.pous
         .filter((p) => p.data.body.language === 'cpp')
         .map((p) => {

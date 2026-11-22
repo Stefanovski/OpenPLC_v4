@@ -7,6 +7,7 @@ import type {
   IecGraphicalDebugBinding,
   IecGraphicalPinBinding,
 } from '@root/types/PLC/iec-debug'
+import { lowerGlobalVariableLists } from '@root/utils/PLC/global-variable-lists'
 
 export const IEC_DEBUG_METADATA_FILE = 'program.debug.json'
 export const XML2ST_SOURCE_MAP_FILE = 'program.source-map.json'
@@ -179,7 +180,7 @@ const sourceFileName = (pouName: string): string => {
 export const prepareProjectForIecDebug = (
   projectData: ProjectState['data'],
 ): { projectData: ProjectState['data']; sourceFiles: DebugSourceFile[] } => {
-  const debugProject = structuredClone(projectData)
+  const debugProject = structuredClone(lowerGlobalVariableLists(projectData))
   const sourceFiles: DebugSourceFile[] = []
   const fileNames = new Set<string>()
 

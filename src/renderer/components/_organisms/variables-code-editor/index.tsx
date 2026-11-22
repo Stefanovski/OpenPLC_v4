@@ -6,9 +6,10 @@ interface VariablesCodeEditorProps {
   code: string
   onCodeChange: (code: string) => void
   shouldUseDarkMode: boolean
+  readOnly?: boolean
 }
 
-const VariablesCodeEditor = ({ code, onCodeChange, shouldUseDarkMode }: VariablesCodeEditorProps) => {
+const VariablesCodeEditor = ({ code, onCodeChange, shouldUseDarkMode, readOnly = false }: VariablesCodeEditorProps) => {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [height, setHeight] = useState(1000)
@@ -58,6 +59,7 @@ const VariablesCodeEditor = ({ code, onCodeChange, shouldUseDarkMode }: Variable
         onMount={handleEditorDidMount}
         onChange={(value) => onCodeChange(value ?? '')}
         options={{
+          readOnly,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           wordWrap: 'on',

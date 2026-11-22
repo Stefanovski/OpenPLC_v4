@@ -646,12 +646,52 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     [pou?.data.variables],
   )
 
+  const globalVariableLists = useOpenPLCStore((state) => state.project.data.globalVariableLists)
+
+  useEffect(() => {
+    if (!['st', 'cpp', 'il'].includes(language)) return
+    const provider = monaco.languages.registerCompletionItemProvider(language, {
+      triggerCharacters: ['.'],
+      provideCompletionItems: (model, position) => {
+        const before = model.getLineContent(position.lineNumber).slice(0, position.column - 1)
+        const access = before.match(/\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)?$/)
+        const list = globalVariableLists?.find((item) => item.name.toLowerCase() === access?.[1].toLowerCase())
+        if (!list) return { suggestions: [] }
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: position.column - (access?.[2]?.length ?? 0),
+          endColumn: position.column,
+        }
+        return {
+          suggestions: list.variables.map((v) => ({
+            label: v.name,
+            insertText: v.name,
+            detail: `${v.type.value}${v.location ? ' AT ' + v.location : ''}`,
+            documentation: v.documentation,
+            kind: monaco.languages.CompletionItemKind.Variable,
+            range,
+          })),
+        }
+      },
+    })
+    return () => provider.dispose()
+  }, [language, globalVariableLists])
+
   const globalVariablesSuggestions = useCallback(
     (range: monaco.IRange) => {
       const suggestions = tableGlobalVariablesCompletion({
         range,
         variables: globalVariables as PLCVariable[],
       }).suggestions
+      for (const list of globalVariableLists ?? [])
+        suggestions.push({
+          label: list.name,
+          insertText: list.name,
+          kind: monaco.languages.CompletionItemKind.Module,
+          range,
+          documentation: 'Global variable list',
+        })
       const uniqueSuggestions = Array.from(new Map(suggestions.map((s) => [s.label, s])).values())
       const labels = uniqueSuggestions.map((suggestion) => suggestion.label)
       return {
@@ -659,7 +699,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
         labels,
       }
     },
-    [globalVariables],
+    [globalVariables, globalVariableLists],
   )
 
   const librarySuggestions = useCallback(
@@ -883,7 +923,7 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       },
     })
     return () => disposable.dispose()
-  }, [pou?.data.variables, globalVariables, sliceLibraries, language, snippetsSTSuggestions])
+  }, [pou?.data.variables, globalVariables, globalVariableLists, sliceLibraries, language, snippetsSTSuggestions])
 
   /**
    * C/C++ completion provider

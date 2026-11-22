@@ -8,6 +8,7 @@ import { existsSync, promises } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
+import { gvlFixture } from '../../../../scripts/eurosonic/fixtures/gvl'
 import { ProjectService } from './index'
 import { readProjectFiles } from './utils/read-project'
 
@@ -86,6 +87,25 @@ it('writes the supplied unsaved snapshot and leaves original bytes untouched', a
   })
   expect(existsSync(join(target, 'devices/configuration.json'))).toBe(true)
   expect(data).toEqual(before)
+})
+
+it('roundtrips named GVLs, IO, RETAIN and incomplete drafts through Save As and Save', async () => {
+  const data = input()
+  const fixture = gvlFixture()
+  data.content.projectData.data = { ...fixture, pous: [] }
+  data.content.pous = fixture.pous
+  fixture.globalVariableLists![0].variables[0].debug = true
+  fixture.globalVariableLists![1].variablesText = 'VAR_GLOBAL RETAIN\n Count : UDINT := 42;\nEND_VAR'
+  expect((await service.saveProjectAs(data)).success).toBe(true)
+  let reopened = await readProjectFiles(target)
+  expect(reopened.success).toBe(true)
+  expect(reopened.data?.project.data.globalVariableLists).toEqual(fixture.globalVariableLists)
+  expect(reopened.data?.pous[0].data.body.value).toContain('GVL_IO.Lamp')
+  data.projectPath = target
+  fixture.globalVariableLists![1].variablesText = 'VAR_GLOBAL RETAIN\n Count :'
+  expect((await service.saveProject(data)).success).toBe(true)
+  reopened = await readProjectFiles(target)
+  expect(reopened.data?.project.data.globalVariableLists).toEqual(fixture.globalVariableLists)
 })
 
 it('cancels without creating a destination', async () => {

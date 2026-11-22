@@ -60,6 +60,7 @@ export const parseIecStringToVariables = (
   pous?: PLCPou[],
   _dataTypes?: PLCDataType[], // Reserved for future use: will enable user-defined data type validation
   libraries?: LibraryState['libraries'],
+  options?: { globalRetain?: boolean },
 ): PLCVariable[] => {
   const variables: PLCVariable[] = []
   const lines = iecString.split(/\r?\n/)
@@ -77,7 +78,7 @@ export const parseIecStringToVariables = (
     if (blockStart) {
       currentClass = varBlockToClass[blockStart[1].toUpperCase()]
       retain = Boolean(blockStart[2])
-      if (retain && currentClass !== 'local') {
+      if (retain && currentClass !== 'local' && !(currentClass === 'global' && options?.globalRetain)) {
         throw new Error(`Syntax error on line ${lineNumber}: RETAIN is supported in local VAR blocks.`)
       }
       return

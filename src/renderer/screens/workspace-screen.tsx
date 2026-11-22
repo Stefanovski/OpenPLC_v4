@@ -5,6 +5,7 @@ import { baseTypeSchema } from '@root/types/PLC/open-plc'
 import type { PLCBaseTypesLowercase } from '@root/types/PLC/units/base-types'
 import { cn, isOpenPLCRuntimeTarget } from '@root/utils'
 import { parseDimensionRange } from '@root/utils/PLC/array-variable-utils'
+import { displayGvlPath } from '@root/utils/PLC/global-variable-lists'
 import { useEffect, useRef } from 'react'
 import { useState } from 'react'
 import { ImperativePanelHandle } from 'react-resizable-panels'
@@ -70,7 +71,7 @@ const WorkspaceScreen = () => {
     deviceActions: { setAvailableOptions },
     searchResults,
     project: {
-      data: { pous },
+      data: { pous, globalVariableLists },
     },
   } = useOpenPLCStore()
 
@@ -130,6 +131,19 @@ const WorkspaceScreen = () => {
         }
       })
   })
+
+  for (const list of globalVariableLists ?? [])
+    for (const variable of list.variables.filter((v) => v.debug)) {
+      const name = `${list.name}.${variable.name}`,
+        compositeKey = `resource:${name}`
+      allDebugVariables.push({
+        pouName: 'resource',
+        name,
+        type: variable.type.value,
+        value: debugVariableValues.get(compositeKey) ?? '-',
+        compositeKey,
+      })
+    }
 
   const nameOccurrences = new Map<string, number>()
   allDebugVariables.forEach((v) => {
@@ -283,7 +297,10 @@ const WorkspaceScreen = () => {
         return
       }
 
-      workspaceActions.setIecDebugMetadata(metadata.data)
+      workspaceActions.setIecDebugMetadata({
+        ...metadata.data,
+        variables: metadata.data.variables.map((v) => ({ ...v, path: displayGvlPath(v.path, project.data) })),
+      })
       const metadataInstancesByType = buildFbDebugInstanceMap(metadata.data, useOpenPLCStore.getState().project.data)
       if (metadataInstancesByType.size > 0) {
         workspaceActions.setFbDebugInstances(metadataInstancesByType)
@@ -1081,6 +1098,22 @@ const WorkspaceScreen = () => {
       })
     })
 
+    for (const [key, node] of useOpenPLCStore.getState().workspace.debugVariableTree ?? []) {
+      if (!key.startsWith('resource:') || node.isComplex || node.debugIndex === undefined) continue
+      const type = baseTypeSchema.safeParse(node.type.toLowerCase())
+      if (!type.success) continue
+      addVariableInfo(node.debugIndex, {
+        pouName: 'resource',
+        variable: {
+          name: key.slice('resource:'.length),
+          type: { definition: 'base-type', value: type.data },
+          class: 'external',
+          location: '',
+          documentation: '',
+        },
+      })
+    }
+
     variableInfoMapRef.current = variableInfoMap
 
     // Extend debugVariableIndexes with composite keys from variableInfoMap
@@ -1112,6 +1145,8 @@ const WorkspaceScreen = () => {
         const { project: currentProject } = useOpenPLCStore.getState()
 
         const debugVariableKeys = new Set<string>()
+        for (const list of currentProject.data.globalVariableLists ?? [])
+          for (const v of list.variables) if (v.debug) debugVariableKeys.add(`resource:${list.name}.${v.name}`)
 
         // Get FB debug context for function block POUs
         const {

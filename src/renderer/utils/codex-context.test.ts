@@ -1,3 +1,4 @@
+import { gvlFixture } from '../../../scripts/eurosonic/fixtures/gvl'
 import { describeCodexContext, MAX_CODEX_CONTEXT_BYTES, parseCodexContext } from '../../types/IPC/codex-context'
 import type { IoInventory } from '../../types/PLC/io-inventory'
 import type { RootState } from '../store'
@@ -251,4 +252,18 @@ test('observation cache preserves detached data, ignores late requests and clear
   clearIoObservation(original.projectPath)
   finishIoObservation(third, inventory())
   expect(getIoObservation()).toBeUndefined()
+})
+
+test('includes named GVLs and pending declaration edits in the shared project snapshot', () => {
+  const state = source()
+  state.project.data.globalVariableLists = gvlFixture().globalVariableLists
+  state.project.data.globalVariableLists![1].variablesText = 'VAR_GLOBAL RETAIN\n Count :'
+  const before = structuredClone(state.project.data)
+  const context = parseCodexContext(buildCodexContext(state, undefined, now).snapshot)
+  expect(context.project.resource.globalVariableLists?.[0]).toMatchObject({
+    name: 'GVL_IO',
+    declarations: { source: 'table' },
+  })
+  expect(context.project.resource.globalVariableLists?.[1].declarations.text).toBe('VAR_GLOBAL RETAIN\n Count :')
+  expect(state.project.data).toEqual(before)
 })

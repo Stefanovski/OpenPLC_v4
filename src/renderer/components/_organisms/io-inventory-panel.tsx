@@ -116,6 +116,9 @@ export function IoInventoryPanel() {
   const references: string[] = []
   for (const variable of project.data.configuration.resource.globalVariables)
     if (addresses.has(variable.location)) references.push(`Global: ${variable.name} (${variable.location})`)
+  for (const list of project.data.globalVariableLists ?? [])
+    for (const variable of list.variables)
+      if (addresses.has(variable.location)) references.push(`${list.name}.${variable.name} (${variable.location})`)
   for (const pou of project.data.pous) {
     for (const v of pou.data.variables)
       if (addresses.has(v.location)) references.push(`${pou.data.name}: ${v.name} (${v.location})`)

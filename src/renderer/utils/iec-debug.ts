@@ -46,7 +46,9 @@ const findIecDebugVariableByIdentifier = (
     const nameSegments = variable.name.split('.')
     const localPath = pathSegments[pathSegments.length - 1] ?? ''
     const localName = nameSegments[nameSegments.length - 1] ?? ''
-    return [localPath, localName].some((candidate) => candidate.toUpperCase() === normalizedIdentifier)
+    return [localPath, localName, variable.path, variable.path.replace(/^CONFIG0\./i, '')].some(
+      (candidate) => candidate.toUpperCase() === normalizedIdentifier,
+    )
   })
 
   return matches.length === 1 ? matches[0] : undefined

@@ -1,5 +1,10 @@
 import { PLCVariableSchema } from '@root/types/PLC'
-import { PLCDataTypeSchema, PLCInstanceSchema, PLCTaskSchema } from '@root/types/PLC/open-plc'
+import {
+  PLCDataTypeSchema,
+  PLCGlobalVariableListSchema,
+  PLCInstanceSchema,
+  PLCTaskSchema,
+} from '@root/types/PLC/open-plc'
 import { z } from 'zod'
 
 import { zodFBDFlowSchema } from '../fbd'
@@ -11,6 +16,7 @@ const historySnapshotSchema = z.object({
   ladderFlow: zodLadderFlowSchema.optional(),
   fbdFlow: zodFBDFlowSchema.optional(),
   globalVariables: z.array(PLCVariableSchema).optional(),
+  globalVariableLists: z.array(PLCGlobalVariableListSchema).optional(),
   tasks: z.array(PLCTaskSchema).optional(),
   instances: z.array(PLCInstanceSchema).optional(),
   dataTypes: z.array(PLCDataTypeSchema).optional(),
@@ -33,6 +39,7 @@ type HistoryState = z.infer<typeof historyStateSchema>
 const historyActionsSchema = z.object({
   addPastHistory: z.function().args(z.string(), historySnapshotSchema).returns(z.void()),
   addFutureHistory: z.function().args(z.string(), historySnapshotSchema).returns(z.void()),
+  addRedoPastHistory: z.function().args(z.string(), historySnapshotSchema).returns(z.void()),
   popPastHistory: z.function().args(z.string()).returns(historySnapshotSchema.optional()),
   popFutureHistory: z.function().args(z.string()).returns(historySnapshotSchema.optional()),
   undo: z.function().args(z.string()).returns(z.void()),

@@ -34,35 +34,17 @@ def update_Config0h():
         print(f'An error occurred: {e}')
 
 def update_POUSc():
-    # Define the line to be added
-    include_line = '#include "POUS.h"\n'
-
-    # Specify the file path
     file_path = 'src/POUS.c'
-
-    try:
-        # Read the content of the file
-        with open(file_path, 'r') as file:
-            content = file.readlines()
-
-        # Check if the line is already present to avoid duplication
-        if content and content[0].strip() == include_line.strip():
-            print(f'"{include_line.strip()}" is already present at the top of {file_path}.')
-            return
-
-        # Add the line at the beginning
-        content.insert(0, include_line)
-
-        # Write the modified content back to the file
-        with open(file_path, 'w') as file:
-            file.writelines(content)
-
-        print(f'Added "{include_line.strip()}" to {file_path}.')
-
-    except FileNotFoundError:
-        print(f'Error: File {file_path} not found.')
-    except Exception as e:
-        print(f'An error occurred: {e}')
+    with open(file_path, 'r') as file:
+        content = file.read()
+    if '#include "POUS.h"' not in content:
+        content = '#include "POUS.h"\n' + content
+    # MatIEC emits global getter calls for VAR_EXTERNAL. Their prototypes must
+    # follow the IEC/POU types, including in projects with no native C++ blocks.
+    if '__INIT_EXTERNAL(' in content and '#include "Config0.h"' not in content:
+        content = content.replace('#include "POUS.h"', '#include "POUS.h"\n#include "Config0.h"', 1)
+    with open(file_path, 'w') as file:
+        file.write(content)
 
 def update_Res0c():
     try:

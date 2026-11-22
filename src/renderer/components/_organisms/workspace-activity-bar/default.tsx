@@ -4,6 +4,7 @@ import { compileOnlySelectors } from '@root/renderer/hooks'
 import { useOpenPLCStore } from '@root/renderer/store'
 import type { RuntimeConnection } from '@root/renderer/store/slices/device/types'
 import { buildDebugTree } from '@root/renderer/utils/debug-tree-builder'
+import { buildGvlDebugTrees } from '@root/renderer/utils/gvl-debug'
 import {
   findOutdatedLibraryBlocks,
   formatLibraryBlockInterfaceChange,
@@ -16,6 +17,8 @@ import { addCppLocalVariables } from '@root/utils/cpp/addCppLocalVariables'
 import { generateEurosonicCppST, validateEurosonicCpp } from '@root/utils/cpp/eurosonic'
 import { generateSTCode as generateCppSTCode } from '@root/utils/cpp/generateSTCode'
 import { validateCppCode } from '@root/utils/cpp/validateCppCode'
+import { displayGvlPath } from '@root/utils/PLC/global-variable-lists'
+import { lowerGlobalVariableLists } from '@root/utils/PLC/global-variable-lists'
 
 type CppPouData = {
   name: string
@@ -168,7 +171,19 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
     const hasPythonCode = projectData.pous.some((pou: PLCPou) => pou.data.body.language === 'python')
 
-    let processedProjectData: PLCProjectData = applyEarlyCommentWrapping(projectData)
+    let processedProjectData: PLCProjectData
+    try {
+      processedProjectData = applyEarlyCommentWrapping(lowerGlobalVariableLists(projectData))
+    } catch (error) {
+      addLog({
+        id: crypto.randomUUID(),
+        level: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      })
+      setIsCompiling(false)
+      setIsDebuggerProcessing(false)
+      return
+    }
 
     if (hasPythonCode) {
       const pythonPous = projectData.pous.filter((pou: PLCPou) => pou.data.body.language === 'python')
@@ -602,7 +617,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       })
 
       const hasPythonCode = projectData.pous.some((pou: PLCPou) => pou.data.body.language === 'python')
-      let processedProjectData: PLCProjectData = applyEarlyCommentWrapping(projectData)
+      let processedProjectData: PLCProjectData = applyEarlyCommentWrapping(lowerGlobalVariableLists(projectData))
 
       if (hasPythonCode) {
         const pythonPous = projectData.pous.filter((pou: PLCPou) => pou.data.body.language === 'python')
@@ -1108,6 +1123,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               })
             })
 
+            for (const node of buildGvlDebugTrees(project, parsed.variables)) {
+              trees.push(node)
+              addNodeAndChildrenToMap(node)
+            }
             workspaceActions.setDebugVariableTree(treeMap)
 
             if (process.env.NODE_ENV === 'development') {
@@ -1234,7 +1253,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             // outputs (for example ADD.OUT: ANY_NUM) need the concrete generated type from this metadata.
             const metadata = await window.bridge.debuggerReadIecMetadata(projectPath, boardTarget)
             if (metadata.success && metadata.data) {
-              workspaceActions.setIecDebugMetadata(metadata.data)
+              workspaceActions.setIecDebugMetadata({
+                ...metadata.data,
+                variables: metadata.data.variables.map((v) => ({ ...v, path: displayGvlPath(v.path, project.data) })),
+              })
             } else {
               consoleActions.addLog({
                 id: crypto.randomUUID(),
