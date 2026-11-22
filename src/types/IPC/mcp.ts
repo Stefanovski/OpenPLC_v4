@@ -26,7 +26,7 @@ export type McpRequest = { id: string; action: McpAction; capture: McpCapture; c
 export type McpResult = {
   id: string
   operation: McpAction['operation']
-  status: 'review-required' | 'executing' | 'completed' | 'rejected' | 'cancelled' | 'failed'
+  status: 'queued' | 'review-required' | 'executing' | 'completed' | 'rejected' | 'cancelled' | 'failed'
   detail: string
   value?: unknown
 }

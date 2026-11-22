@@ -1,17 +1,22 @@
 import { emptyMcpState, McpState } from '@root/types/IPC/mcp'
 import { PLCVariableSchema } from '@root/types/PLC/open-plc'
+import { mcpDisposition } from '@root/types/plc-operations/ai-settings'
 import { parsePlcContext, PlcContext } from '@root/types/plc-operations/context'
 import type { PlcOperationTransport } from '@root/types/plc-operations/transport'
 import { generateIecVariablesToString } from '@root/utils/generate-iec-variables-to-string'
 import { useEffect, useRef, useState } from 'react'
 
+import { getPlcAiSettings, usePlcAiSettings } from '../../operations/ai-settings'
 import { buildPlcContext } from '../../operations/context'
 import { debugObservations } from '../../operations/debug-observations'
 import { debuggerTarget, debugTargetKey } from '../../operations/debug-target'
 import { usePlcDebugger } from '../../operations/use-debugger'
 import { openPLCStoreBase, useOpenPLCStore } from '../../store'
 import { createMcpEditorOperations, guardMcpRequest } from '../../utils/mcp-operations'
+import { ToastAction } from '../_features/[app]/toast'
+import { toast } from '../_features/[app]/toast/use-toast'
 import { Modal, ModalContent, ModalTitle } from '../_molecules/modal'
+import { PlcAiSettings } from './plc-ai-settings'
 
 const button =
   'rounded border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800'
@@ -22,6 +27,7 @@ function previousCode(pou: PlcContext['project']['pous'][number] | undefined) {
   return `Documentation: ${pou.documentation}\n${pou.returnType ? `Return type: ${pou.returnType}\n` : ''}${declarations}\n\n${typeof pou.body === 'string' ? pou.body : '(graphical body)'}`
 }
 function McpPanel({ projectPath }: { projectPath: string }) {
+  const settings = usePlcAiSettings(projectPath)
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<McpState>(emptyMcpState)
   const [error, setError] = useState('')
@@ -30,6 +36,8 @@ function McpPanel({ projectPath }: { projectPath: string }) {
   const [undoId, setUndoId] = useState<string | null>(null)
   const live = useRef(state)
   const activeId = useRef('')
+  const executing = useRef(false)
+  const reviewShown = useRef('')
   const transport = useRef<Pick<PlcOperationTransport, 'debugExecute' | 'debugClose'>>({
     debugExecute: (data) => window.bridge.mcpDebug(activeId.current, data),
     debugClose: () => window.bridge.mcpDebugClose(),
@@ -72,7 +80,7 @@ function McpPanel({ projectPath }: { projectPath: string }) {
       const s = openPLCStoreBase.getState()
       let capture = null
       try {
-        if (s.project.meta.path === projectPath)
+        if (s.project.meta.path === projectPath && getPlcAiSettings(projectPath).includeContext)
           capture = {
             projectPath,
             target: debugTargetKey(s),
@@ -98,38 +106,80 @@ function McpPanel({ projectPath }: { projectPath: string }) {
       void window.bridge.mcpStop().catch(() => {})
     }
   }, [projectPath])
+  useEffect(() => {
+    if (!settings.includeContext || !settings.activeDebugger) debug.current.close()
+    if (state.enabled) void window.bridge.mcpConfigure(settings).catch((e: Error) => setError(e.message))
+  }, [settings, state.enabled])
   const perform = async (action: () => unknown) => {
     setBusy(true)
     setError('')
     try {
       await action()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'MCP operation failed.')
+      const message = e instanceof Error ? e.message : 'MCP operation failed.'
+      setError(message)
+      toast({ title: 'MCP operation failed', description: message, variant: 'fail' })
     } finally {
       setBusy(false)
       setUndoId(operations.current!.undoId())
     }
   }
-  const approve = () =>
-    perform(async () => {
-      if (!state.pending) return
-      guardMcpRequest(openPLCStoreBase.getState(), state.pending)
-      const request = await window.bridge.mcpClaim(state.pending.id)
+  const approve = async (automatic = false) => {
+    const pending = live.current.pending
+    if (!pending || executing.current) return
+    executing.current = true
+    await perform(async () => {
+      let claimed = false
       try {
-        const result = await operations.current!.execute(
-          request,
-          () => live.current.enabled && live.current.pending?.id === request.id,
-        )
+        const permission = mcpDisposition(pending.action, getPlcAiSettings(projectPath))
+        if (automatic && permission !== 'queued') return
+        const request = await window.bridge.mcpClaim(pending.id)
+        claimed = true
+        const checkPermission = () => {
+          const current = mcpDisposition(request.action, getPlcAiSettings(projectPath))
+          if (automatic && current !== 'queued') throw new Error('AI settings changed; request a fresh review.')
+          return live.current.enabled && live.current.pending?.id === request.id
+        }
+        checkPermission()
+        guardMcpRequest(openPLCStoreBase.getState(), request)
+        const result = await operations.current!.execute(request, checkPermission)
         const success = !('success' in result) || result.success !== false
         await window.bridge.mcpComplete(request.id, success, result)
+        if (success && (request.action.operation === 'changes' || request.action.operation === 'undo'))
+          toast({
+            title: request.action.operation === 'changes' ? 'MCP changes applied' : 'MCP change undone',
+            description: 'Unsaved editor content updated. No PLC download.',
+            action: (
+              <ToastAction altText='Open MCP panel to review or undo' onClick={() => setOpen(true)}>
+                Review / Undo
+              </ToastAction>
+            ),
+          })
       } catch (e) {
         const detail = e instanceof Error ? e.message : 'MCP operation failed.'
-        await window.bridge.mcpComplete(request.id, false, { error: detail })
+        if (claimed) await window.bridge.mcpComplete(pending.id, false, { error: detail })
+        else await window.bridge.mcpCancel(pending.id)
         throw e
       }
     })
+    executing.current = false
+  }
   const pending = state.pending
   const result = state.results.find((r) => r.id === pending?.id)
+  useEffect(() => {
+    if (!pending || !result || !['queued', 'review-required'].includes(result.status)) return
+    try {
+      const permission = mcpDisposition(pending.action, settings)
+      if (permission === 'queued' && result.status === 'queued') void approve(true)
+      else if (permission === 'review-required' && reviewShown.current !== pending.id) {
+        reviewShown.current = pending.id
+        setShowConfig(false)
+        setOpen(true)
+      }
+    } catch {
+      // The trusted configuration IPC cancels requests whose permissions were revoked.
+    }
+  }, [pending, result, settings, busy])
   const before = pending ? parsePlcContext(pending.capture.context.snapshot) : null
   let target = 'No valid PLC target configured'
   try {
@@ -162,15 +212,17 @@ function McpPanel({ projectPath }: { projectPath: string }) {
           <ModalTitle>External AI connections · MCP</ModalTitle>
           <div className='min-h-0 flex-1 space-y-4 overflow-auto text-sm'>
             <p>
-              Connect a local MCP client to this open project, including unsaved code and IO assignments. Each change,
-              compilation and active debugger command requires approval here.
+              Connect a local MCP client to this open project, including unsaved code and IO assignments. Codex and
+              external AI clients use the same settings below. Execution and breakpoint commands require confirmation.
             </p>
             <div className='flex flex-wrap gap-2'>
               {!state.enabled ? (
                 <button
                   className={button}
                   disabled={busy || !projectPath}
-                  onClick={() => void perform(() => window.bridge.mcpEnable(projectPath))}
+                  onClick={() =>
+                    void perform(() => window.bridge.mcpEnable(projectPath, getPlcAiSettings(projectPath)))
+                  }
                 >
                   Enable MCP for this project
                 </button>
@@ -205,6 +257,14 @@ function McpPanel({ projectPath }: { projectPath: string }) {
             </div>
             {state.enabled && (
               <p>MCP enabled for this editor session. Stopping MCP or changing projects revokes the connection.</p>
+            )}
+            {pending ? (
+              <details>
+                <summary className='cursor-pointer'>Shared AI settings · Codex and MCP</summary>
+                <PlcAiSettings projectPath={projectPath} disabled={busy} />
+              </details>
+            ) : (
+              <PlcAiSettings projectPath={projectPath} disabled={busy} />
             )}
             {state.enabled && showConfig && (
               <section className='space-y-2'>
@@ -321,18 +381,6 @@ function McpPanel({ projectPath }: { projectPath: string }) {
                     <pre className='whitespace-pre-wrap text-xs'>{JSON.stringify(pending.action.command, null, 2)}</pre>
                   </>
                 )}
-                <div className='flex gap-2'>
-                  <button
-                    className={button}
-                    disabled={busy || result?.status !== 'review-required'}
-                    onClick={() => void approve()}
-                  >
-                    Approve MCP request
-                  </button>
-                  <button className={button} onClick={() => void perform(() => window.bridge.mcpCancel(pending.id))}>
-                    {result?.status === 'executing' ? 'Cancel request' : 'Reject MCP request'}
-                  </button>
-                </div>
               </section>
             )}
             {state.results
@@ -358,6 +406,20 @@ function McpPanel({ projectPath }: { projectPath: string }) {
               </p>
             )}
           </div>
+          {pending && (
+            <div className='flex gap-2'>
+              <button
+                className={button}
+                disabled={busy || !result || !['review-required', 'queued'].includes(result.status)}
+                onClick={() => void approve()}
+              >
+                Approve MCP request
+              </button>
+              <button className={button} onClick={() => void perform(() => window.bridge.mcpCancel(pending.id))}>
+                {result?.status === 'executing' ? 'Cancel request' : 'Reject MCP request'}
+              </button>
+            </div>
+          )}
           <button className={button} onClick={() => setOpen(false)}>
             Close MCP panel
           </button>

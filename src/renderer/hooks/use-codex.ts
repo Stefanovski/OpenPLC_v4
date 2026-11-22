@@ -3,6 +3,7 @@ import type { CodexBuildAction } from '@root/types/IPC/codex-chat'
 import type { CodexDebugAction } from '@root/types/IPC/codex-debug-control'
 import { useEffect, useRef, useState } from 'react'
 
+import { getPlcAiSettings } from '../operations/ai-settings'
 import { openPLCStoreBase } from '../store'
 import { createCodexBuildDispatcher } from '../utils/codex-chat-action'
 import { buildCodexContext } from '../utils/codex-context'
@@ -37,11 +38,13 @@ export function useCodex(
         latestRevision.current = next.revision
         setState((previous) => (next.revision >= previous.revision ? next : previous))
         const request = dispatcher.current.take(next)
-        if (request) buildHandler.current(request)
+        const settings = getPlcAiSettings(projectPath)
+        if (request && settings.includeContext && settings.proposeChanges) buildHandler.current(request)
         const edit = editDispatcher.current.take(next)
-        if (edit) editHandler.current(edit)
+        if (edit && settings.includeContext && settings.proposeChanges && settings.directEdits)
+          editHandler.current(edit)
         const debug = debugDispatcher.current.take(next, debugTargetKey(openPLCStoreBase.getState()))
-        if (debug) debugHandler.current(debug)
+        if (debug && settings.includeContext && settings.activeDebugger) debugHandler.current(debug)
       }
     }
     const unsubscribe = window.bridge.onCodexState(accept)

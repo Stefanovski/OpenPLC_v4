@@ -3,6 +3,7 @@ import { app, BrowserWindow, IpcMain, IpcMainInvokeEvent } from 'electron'
 import { z } from 'zod'
 
 import { emptyMcpState, McpCapture, mcpCaptureSchema, McpState } from '../../../types/IPC/mcp'
+import { plcAiSettingsSchema } from '../../../types/plc-operations/ai-settings'
 import { debugExecuteSchema } from '../../../types/plc-operations/debugger'
 import { PlcOperationsService } from '../plc-operations/service'
 import { McpBroker } from './broker'
@@ -12,6 +13,7 @@ export function registerMcpIpc(ipc: IpcMain, window: BrowserWindow, operations: 
   let reads = new Map<string, { resolve: (capture: McpCapture) => void; reject: (e: Error) => void }>()
   let starting = false
   let epoch = 0
+  let visibleReviewId: string | null = null
   const state = (): McpState => ({
     ...emptyMcpState,
     ...listener.connection(),
@@ -19,7 +21,20 @@ export function registerMcpIpc(ipc: IpcMain, window: BrowserWindow, operations: 
     ...broker.state(),
   })
   const notify = () => {
-    if (!window.isDestroyed()) window.webContents.send('mcp:state', state())
+    if (window.isDestroyed()) return
+    const next = state()
+    window.webContents.send('mcp:state', next)
+    const reviewId =
+      next.pending && next.results.some((r) => r.id === next.pending?.id && r.status === 'review-required')
+        ? next.pending.id
+        : null
+    if (reviewId && reviewId !== visibleReviewId) {
+      // The request often comes from another foreground app. Make the host review visible there too.
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+    }
+    visibleReviewId = reviewId
   }
   const broker = new McpBroker(
     () =>
@@ -44,7 +59,9 @@ export function registerMcpIpc(ipc: IpcMain, window: BrowserWindow, operations: 
         window.webContents.send('mcp:capture', id)
       }),
     notify,
-    (request) => { if (request.action.operation === 'debug') operations.closeDebugger('mcp') },
+    (request) => {
+      if (request.action.operation === 'debug') operations.closeDebugger('mcp')
+    },
   )
   const listener = new LocalMcpServer(broker)
   const stop = () => {
@@ -68,7 +85,11 @@ export function registerMcpIpc(ipc: IpcMain, window: BrowserWindow, operations: 
     trusted(event)
     return state()
   })
-  ipc.handle('mcp:enable', async (event, path: unknown) => {
+  ipc.handle('mcp:configure', (event, settings: unknown) => {
+    trusted(event)
+    broker.configure(plcAiSettingsSchema.parse(settings))
+  })
+  ipc.handle('mcp:enable', async (event, path: unknown, settings: unknown) => {
     trusted(event)
     if (starting) throw new Error('MCP is starting.')
     const project = z.string().min(1).max(4096).parse(path)
@@ -77,7 +98,7 @@ export function registerMcpIpc(ipc: IpcMain, window: BrowserWindow, operations: 
     starting = true
     try {
       operations.selectProject(project)
-      broker.activate(project)
+      broker.activate(project, settings === undefined ? null : plcAiSettingsSchema.parse(settings))
       await listener.start()
       if (run !== epoch) {
         listener.stop()

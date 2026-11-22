@@ -24,6 +24,7 @@ import type {
   IecDebugVariableValue,
 } from '@root/types/PLC/iec-debug'
 import type { IoRescanResult, IoScanResult } from '@root/types/PLC/io-inventory'
+import type { PlcAiSettings } from '@root/types/plc-operations/ai-settings'
 import type { PlcBuildRequest, PlcBuildResult } from '@root/types/plc-operations/build'
 import type { PlcDebugExecute, PlcDebugResult } from '@root/types/plc-operations/debugger'
 import { ipcRenderer, IpcRendererEvent } from 'electron'
@@ -57,7 +58,8 @@ export type ISaveDataResponse = {
  */
 const rendererProcessBridge = {
   mcpState: (): Promise<McpState> => ipcRenderer.invoke('mcp:state'),
-  mcpEnable: (path: string): Promise<McpState> => ipcRenderer.invoke('mcp:enable', path),
+  mcpEnable: (path: string, settings?: PlcAiSettings): Promise<McpState> => ipcRenderer.invoke('mcp:enable', path, settings),
+  mcpConfigure: (settings: PlcAiSettings): Promise<void> => ipcRenderer.invoke('mcp:configure', settings),
   mcpStop: (): Promise<McpState> => ipcRenderer.invoke('mcp:stop'),
   mcpCaptureResult: (id: string, capture: McpCapture | null): Promise<void> => ipcRenderer.invoke('mcp:capture-result', id, capture),
   mcpClaim: (id: string): Promise<McpRequest> => ipcRenderer.invoke('mcp:claim', id),
