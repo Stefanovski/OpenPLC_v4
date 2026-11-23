@@ -39,11 +39,15 @@ const variables = [
   array('Results', 'output', ['1..2']),
   scalar('Duration', 'local', 'time'),
   scalar('Label', 'local', 'string'),
+  scalar('UtcNow', 'output', 'dt'),
+  scalar('ClockValid', 'output', 'bool'),
+  scalar('ClockStatus', 'output', 'dint'),
 ]
 const block: CppPouData = {
   name: 'NativeBlock',
   variables,
   code: `
+#include "lib/es_datetime.h"
 static int helper(int value) { return value; }
 void setup() { Counter = 10; }
 void loop() {
@@ -51,6 +55,8 @@ void loop() {
   Output = helper(Input) + Counter + Scratch;
   Results[1] = Samples[-1][2]; Results[2] = Samples[1][3];
   Duration.tv_sec = Counter; Label.len = 1; Label.body[0] = 'X';
+  UtcNow = ES_GET_DATETIME(true, nullptr, &ClockValid, &ClockStatus);
+  if (Input == 1234) ClockStatus = ES_SET_DATETIME(UtcNow);
 }`,
 }
 
@@ -148,7 +154,7 @@ describe('Eurosonic C++ integration', () => {
       writeFileSync(join(src, 'plc.xml'), xml.data!)
       const st = `FUNCTION_BLOCK NativeBlock
 VAR_INPUT Input : INT; Samples : ARRAY[-1..1,2..3] OF INT; END_VAR
-VAR_OUTPUT Output : INT; Results : ARRAY[1..2] OF INT; END_VAR
+VAR_OUTPUT Output : INT; Results : ARRAY[1..2] OF INT; UtcNow : DT; ClockValid : BOOL; ClockStatus : DINT; END_VAR
 VAR_IN_OUT Shared : INT; END_VAR
 VAR Counter : INT; hasBeenInitialized : BOOL; Duration : TIME; Label : STRING; END_VAR
 VAR_TEMP Scratch : INT; END_VAR
@@ -188,7 +194,7 @@ END_CONFIGURATION`
       cpSync(join(src, 'POUS.h'), join(src, 'POUS.arm.h'))
       const header = readFileSync(join(src, 'POUS.h'), 'utf8').replace(
         '#include "iec_std_lib.h"',
-        '#include "iec_types_all.h"\n#include "c_blocks.h"\n#define __BOOL_LITERAL(x) x\n#define __STRING_LITERAL(n,s) ((STRING){n,s})\n#define __time_to_timespec(...) ((TIME){0,0})',
+        '#include "iec_types_all.h"\n#include "c_blocks.h"\n#define __BOOL_LITERAL(x) x\n#define __STRING_LITERAL(n,s) ((STRING){n,s})\n#define __time_to_timespec(...) ((TIME){0,0})\n#define __dt_to_timespec(...) ((DT){0,0})',
       )
       writeFileSync(join(src, 'POUS.h'), header)
       writeFileSync(
@@ -209,6 +215,7 @@ int main(void) {
   assert(a.OUTPUT.value==13 && b.OUTPUT.value==14);
   assert(a.RESULTS.value.table[0].value==17 && a.RESULTS.value.table[1].value==23);
   assert(a.DURATION.value.tv_sec==11 && a.LABEL.value.body[0]=='X');
+  assert(a.UTCNOW.value.tv_sec==0 && !a.CLOCKVALID.value && a.CLOCKSTATUS.value==-1100);
   assert(TEST__EXTERNAL.value==2 && a.SHARED.value==1);
   NATIVEBLOCK_body__(&a);
   assert(a.COUNTER.value==12 && b.COUNTER.value==11 && a.SCRATCH.value==1);
@@ -223,9 +230,20 @@ int main(void) {
 }`,
       )
       run(gcc, ['-std=gnu11', '-Ilib', '-I.', '-c', join(root, 'host.c'), '-o', 'host.o'])
-      run(gpp, ['-std=c++17', '-Wall', '-Wextra', '-Werror', '-c', 'eurosonic_cpp_nativeblock.cpp', '-o', 'native.o'])
+      run(gpp, [
+        '-std=c++17',
+        '-Wall',
+        '-Wextra',
+        '-Werror',
+        '-I../runtime',
+        '-c',
+        'eurosonic_cpp_nativeblock.cpp',
+        '-o',
+        'native.o',
+      ])
       run(gpp, ['-std=c++17', '-Wall', '-Wextra', '-Werror', '-c', 'eurosonic_cpp_otherblock.cpp', '-o', 'other.o'])
-      run(gpp, ['host.o', 'native.o', 'other.o', '-o', 'test.exe'])
+      run(gcc, ['-std=gnu11', '-c', '../runtime/plc_clock.c', '-o', 'clock.o'])
+      run(gpp, ['host.o', 'native.o', 'other.o', 'clock.o', '-o', 'test.exe'])
       run(join(src, 'test.exe'), [])
       // Repeated generation must replace, never append. Removing C++ must remove
       // every generated translation unit from CMake's recursive source glob.

@@ -162,10 +162,17 @@ typedef union __IL_DEFVAR_T {
 /****************************/
 
 /* function that generates an IEC runtime error */
+#ifdef EUROSONIC_PLC
+#include "plc_diagnostics.h"
+#endif
 static inline void __iec_error(void) {
+#ifdef EUROSONIC_PLC
+  plc_iec_runtime_error();
+#else
   /* TODO... */
   fprintf(stderr, "IEC 61131-3 runtime error.\n");
   /*exit(1);*/
+#endif
 }
 
 /*******************************/

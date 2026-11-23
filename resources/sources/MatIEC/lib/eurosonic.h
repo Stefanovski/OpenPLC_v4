@@ -7,6 +7,7 @@
 #include "openplc.h"
 #include "plc_main.h"
 #include "accessor.h"
+#include "es_datetime.h"
 
 /*
  * Eurosonic blocks only access the local OpenPLC process image. The target's

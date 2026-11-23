@@ -39,6 +39,7 @@ endif()
 
 # Add the executable target
 add_executable(OpenPLC ${SOURCES})
+target_compile_definitions(OpenPLC PRIVATE EUROSONIC_PLC=1)
 
 # Only native C++ projects need this check. The PLC loader does not run global
 # C++ constructors; reject those objects instead of silently shipping bad state.
