@@ -1,5 +1,5 @@
 import { ProjectTreeBranch, ProjectTreeLeaf, ProjectTreeRoot } from '@components/_molecules/project-tree'
-import { FolderIcon } from '@root/renderer/assets'
+import { FolderIcon, ResourceIcon } from '@root/renderer/assets'
 import { useOpenPLCStore } from '@root/renderer/store'
 import { TabsProps } from '@root/renderer/store/slices'
 import { extractSearchQuery } from '@root/renderer/store/slices/search/utils'
@@ -11,12 +11,13 @@ const Project = () => {
   const {
     searchQuery,
     project: {
-      data: { pous, dataTypes, configuration },
+      data: { pous, dataTypes, configuration, globalVariableLists },
       meta: { name },
     },
     projectActions: { updateMetaName },
     sharedWorkspaceActions: { openFile },
     workspaceActions: { setSelectedProjectTreeLeaf },
+    editorActions: { selectGlobalVariableList },
   } = useOpenPLCStore()
   const [isEditing, setIsEditing] = useState(false)
   const [inputValue, setInputValue] = useState<string>(name)
@@ -204,6 +205,37 @@ const Project = () => {
               ))}
           </ProjectTreeBranch>
 
+          <ProjectTreeBranch branchTarget='gvl'>
+            {(globalVariableLists ?? []).map((list) => (
+              <li key={list.name}>
+                <button
+                  type='button'
+                  aria-label={`Open GVL ${list.name}`}
+                  className='flex w-full items-center gap-2 py-1 pl-12 text-left text-xs text-neutral-850 hover:bg-slate-50 dark:text-neutral-300 dark:hover:bg-neutral-900'
+                  onClick={() => {
+                    handleCreateTab({ name: 'Resource', path: '/project.json', elementType: { type: 'resource' } })
+                    selectGlobalVariableList(list.name)
+                  }}
+                >
+                  <ResourceIcon size='sm' />
+                  <span className='truncate'>{list.name}</span>
+                </button>
+              </li>
+            ))}
+            <li>
+              <button
+                type='button'
+                className='w-full py-1 pl-12 text-left text-xs text-brand dark:text-brand-light'
+                onClick={() => {
+                  handleCreateTab({ name: 'Resource', path: '/project.json', elementType: { type: 'resource' } })
+                  selectGlobalVariableList('')
+                }}
+              >
+                Manage global variable lists…
+              </button>
+            </li>
+          </ProjectTreeBranch>
+
           {/* Project Resources tree branch */}
           <ProjectTreeBranch
             branchTarget='resource'
@@ -218,6 +250,7 @@ const Project = () => {
                 label: 'Resource',
                 type: 'resource',
               })
+              selectGlobalVariableList(undefined)
             }}
           />
 

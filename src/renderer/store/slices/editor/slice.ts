@@ -13,6 +13,13 @@ export const createEditorSlice: StateCreator<RootState, [], [], EditorSlice> = (
   },
   isMonacoFocused: false,
   editorActions: {
+    selectGlobalVariableList: (name) =>
+      setState(
+        produce((state: EditorState) => {
+          if (state.editor.type === 'plc-resource') state.editor.meta.globalVariableList = name
+          for (const model of state.editors) if (model.type === 'plc-resource') model.meta.globalVariableList = name
+        }),
+      ),
     addModel: (editor) =>
       setState(
         produce((state: EditorState) => {
