@@ -13,6 +13,40 @@ const Eurosonic: EurosonicLibrary = {
   cPath: 'resources/sources/MatIEC/lib/eurosonic.h',
   pous: [
     {
+      name: 'ES_GET_DATETIME',
+      type: 'function',
+      language: 'st',
+      variables: [
+        { name: 'OUT', class: 'output', type: { definition: 'base-type', value: 'DT' } },
+        { name: 'VALID', class: 'output', type: { definition: 'base-type', value: 'BOOL' } },
+        { name: 'STATUS', class: 'output', type: { definition: 'base-type', value: 'DINT' } },
+      ],
+      body: 'Read the M7 UTC clock on demand.',
+      documentation:
+        'UTC := ES_GET_DATETIME(VALID => Valid, STATUS => Status). Reads synchronously; no background polling. ' +
+        'Check Valid before using UTC. Status: 0=OK, 1=busy, -1100=unavailable, -1101=not set, ' +
+        '-1102=out of range, -1103=RTC error. Failure returns DT#1970-01-01. ' +
+        'Seconds precision, 2000-01-01 to 2038-01-19 03:14:07 UTC. Requires matching M7 firmware. ' +
+        'The RTC must be explicitly set after every application start.',
+      extensible: false,
+    },
+    {
+      name: 'ES_SET_DATETIME',
+      type: 'function',
+      language: 'st',
+      variables: [
+        { name: 'UTC', class: 'input', type: { definition: 'base-type', value: 'DT' } },
+        { name: 'OUT', class: 'output', type: { definition: 'base-type', value: 'DINT' } },
+      ],
+      body: 'Set the M7 UTC clock on an explicit event.',
+      documentation:
+        'Status := ES_SET_DATETIME(UTC). Return 0=success, 1=busy, -1100=unavailable, ' +
+        '-1102=out of range, -1103=RTC error. Call only on an explicit event, not every scan. ' +
+        'System-wide UTC clock, seconds precision; no timezone conversion. ' +
+        'Range: 2000-01-01 to 2038-01-19 03:14:07. PLC timer and task clocks are unchanged.',
+      extensible: false,
+    },
+    {
       name: 'ES_GEN_WELD',
       type: 'function-block',
       language: 'st',
@@ -29,8 +63,7 @@ const Eurosonic: EurosonicLibrary = {
           class: 'input',
           type: { definition: 'base-type', value: 'UINT' },
           initialValue: { value: '2' },
-          documentation:
-            'Operating mode: energy=0, time=1, external=2, profile=3, test mode=4 (40001).',
+          documentation: 'Operating mode: energy=0, time=1, external=2, profile=3, test mode=4 (40001).',
         },
         {
           name: 'TARGET_AMPLITUDE',
@@ -85,8 +118,7 @@ const Eurosonic: EurosonicLibrary = {
           name: 'USON_STATE',
           class: 'output',
           type: { definition: 'base-type', value: 'UINT' },
-          documentation:
-            'Ultrasonic process state: idle=0, sweep=1, run=2, hold=3, stop=4, error=5 (30107).',
+          documentation: 'Ultrasonic process state: idle=0, sweep=1, run=2, hold=3, stop=4, error=5 (30107).',
         },
         {
           name: 'FREQUENCY',
@@ -151,7 +183,8 @@ const Eurosonic: EurosonicLibrary = {
           class: 'input',
           type: { definition: 'base-type', value: 'UINT' },
           initialValue: { value: '0' },
-          documentation: 'Scan command (coil 2): 0=Off, 1=Automatic, 2=Manual. A transition to 1 or 2 starts that mode.',
+          documentation:
+            'Scan command (coil 2): 0=Off, 1=Automatic, 2=Manual. A transition to 1 or 2 starts that mode.',
         },
         {
           name: 'START_FREQ',

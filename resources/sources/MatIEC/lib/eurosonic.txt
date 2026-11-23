@@ -5,6 +5,26 @@
  * provided by eurosonic.h for the Eurosonic STM32H7 process image.
  *)
 
+(* UTC wall clock, read only when called. STATUS=0 and VALID=TRUE on success.
+ * A failed read returns DT#1970-01-01-00:00:00. Always check VALID/STATUS.
+ * Supported IEC DT range: 2000-01-01 .. 2038-01-19-03:14:07. *)
+FUNCTION ES_GET_DATETIME : DT
+  VAR_OUTPUT
+    VALID : BOOL;
+    STATUS : DINT;
+  END_VAR
+  ES_GET_DATETIME := DT#1970-01-01-00:00:00;
+END_FUNCTION
+
+(* Explicit system-wide RTC write. Seconds precision; return 0 = success.
+ * Call conditionally, not each scan. Does not change TON/TOF or task timing. *)
+FUNCTION ES_SET_DATETIME : DINT
+  VAR_INPUT
+    UTC : DT;
+  END_VAR
+  ES_SET_DATETIME := -1100;
+END_FUNCTION
+
 FUNCTION_BLOCK ES_GEN_WELD
   VAR_INPUT
     USON             : BOOL := FALSE;
