@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { request as httpRequest } from 'http'
 
 import type { McpCapture } from '../../../types/IPC/mcp'
+import { defaultPlcAiSettings } from '../../../types/plc-operations/ai-settings'
 import { McpBroker } from './broker'
 import { LocalMcpServer } from './server'
 
@@ -170,4 +171,110 @@ test('HTTP rejects missing credentials, browser origins, DNS rebinding hosts, ov
   const restarted = await listener.start()
   expect(restarted.token).not.toBe(token)
   expect((await fetch(restarted.endpoint, { headers })).status).toBe(401)
+}, 20000)
+
+test('shared settings authorize direct edits and explicit builds; debug execution still needs review', async () => {
+  const { broker } = fixture()
+  broker.configure(defaultPlcAiSettings)
+  const context = await broker.context()
+  expect(context.settings).toEqual(defaultPlcAiSettings)
+  expect(context.debugger).toBeNull()
+  expect(context.capabilities.editMode).toBe('direct-with-undo')
+  const queued = broker.submit({
+    operation: 'changes',
+    snapshotId: context.snapshotId,
+    reply: { message: 'edit', changes: [], instances: [] },
+  })
+  expect(queued.status).toBe('queued')
+  const completed = broker.waitForResult(queued.id)
+  broker.claim(queued.id)
+  broker.complete(queued.id, true, { status: 'applied' })
+  expect((await completed).status).toBe('completed')
+  const step = broker.submit({
+    operation: 'debug',
+    snapshotId: (await broker.context()).snapshotId,
+    command: { operation: 'step-over', variables: [], statementId: 0 },
+  })
+  expect(step.status).toBe('review-required')
+  expect((await broker.waitForResult(step.id)).detail).toContain('do not repeatedly poll')
+})
+
+test('changing shared permissions reclassifies or cancels pending work and hides passive samples', async () => {
+  const { broker } = fixture()
+  broker.configure({ ...defaultPlcAiSettings, directEdits: false, includeDebugger: true })
+  expect((await broker.context()).debugger).not.toBeNull()
+  const queued = broker.submit({ operation: 'undo', snapshotId: (await broker.context()).snapshotId })
+  expect(queued.status).toBe('review-required')
+  broker.configure(defaultPlcAiSettings)
+  expect(broker.result(queued.id).status).toBe('queued')
+  broker.configure({ ...defaultPlcAiSettings, directEdits: false })
+  expect(broker.result(queued.id).status).toBe('review-required')
+  broker.configure({ ...defaultPlcAiSettings, proposeChanges: false })
+  expect(broker.result(queued.id).status).toBe('cancelled')
+  expect(() => broker.claim(queued.id)).toThrow()
+  const context = await broker.context()
+  expect(() => broker.submit({ operation: 'undo', snapshotId: context.snapshotId })).toThrow('editing is disabled')
+  broker.configure({ ...defaultPlcAiSettings, activeDebugger: false })
+  expect(() =>
+    broker.submit({
+      operation: 'debug',
+      snapshotId: context.snapshotId,
+      command: { operation: 'connect', variables: [], statementId: 0 },
+    }),
+  ).toThrow('debugger commands are disabled')
+  broker.configure({ ...defaultPlcAiSettings, includeContext: false })
+  await expect(broker.context()).rejects.toThrow('Project access is disabled')
+})
+
+test('bounded waits report running work and shutdown without hanging', async () => {
+  jest.useFakeTimers()
+  const { broker } = fixture()
+  broker.configure(defaultPlcAiSettings)
+  const result = broker.submit({ operation: 'compile', snapshotId: (await broker.context()).snapshotId })
+  broker.claim(result.id)
+  const waiting = broker.waitForResult(result.id)
+  jest.advanceTimersByTime(1500)
+  expect((await waiting).status).toBe('executing')
+  const shutdown = broker.waitForResult(result.id)
+  broker.reset()
+  expect((await shutdown).status).toBe('cancelled')
+})
+
+test('real SDK tool call returns completed directly after the host transaction', async () => {
+  const { broker, notify } = fixture()
+  broker.configure(defaultPlcAiSettings)
+  notify.mockImplementation(() => {
+    const pending = broker.state().pending
+    if (pending && broker.result(pending.id).status === 'queued')
+      setTimeout(() => {
+        broker.claim(pending.id)
+        broker.complete(pending.id, true, { status: 'applied' })
+      }, 0)
+  })
+  const listener = new LocalMcpServer(broker)
+  cleanups.push(() => listener.stop())
+  const { endpoint, token } = await listener.start()
+  const client = new Client({ name: 'direct-client', version: '1.0.0' })
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(endpoint), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    )
+    const snapshotId = (await broker.context()).snapshotId
+    const response = await client.callTool({
+      name: 'openplc_apply_changes',
+      arguments: {
+        snapshotId,
+        reply: { message: 'edit', changes: [], instances: [] },
+      },
+    })
+    expect(JSON.parse((response.content as Array<{ text: string }>)[0].text)).toMatchObject({
+      status: 'completed',
+      value: { status: 'applied' },
+    })
+    expect(broker.state().pending).toBeNull()
+  } finally {
+    await client.close()
+  }
 }, 20000)

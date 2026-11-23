@@ -10,17 +10,15 @@ import { describeCodexContext, parseCodexContext } from '@root/types/IPC/codex-c
 import { describeCodexDebug } from '@root/types/IPC/codex-debug'
 import { useEffect, useRef, useState } from 'react'
 
+import { usePlcAiSettings } from '../../operations/ai-settings'
 import { Modal, ModalContent, ModalTitle } from '../_molecules/modal'
 import { CodexChanges } from './codex-changes'
+import { PlcAiSettings } from './plc-ai-settings'
 
 const CodexSidebar = ({ projectName, projectPath }: { projectName: string; projectPath: string }) => {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
-  const [includeContext, setIncludeContext] = useState(true)
-  const [includeDebugger, setIncludeDebugger] = useState(false)
-  const [activeDebugger, setActiveDebugger] = useState(true)
-  const [proposeChanges, setProposeChanges] = useState(true)
-  const [directEdits, setDirectEdits] = useState(true)
+  const { includeContext, includeDebugger, activeDebugger, proposeChanges, directEdits } = usePlcAiSettings(projectPath)
   const [contextPreview, setContextPreview] = useState<string | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -53,6 +51,9 @@ const CodexSidebar = ({ projectName, projectPath }: { projectName: string; proje
   debugFeedback.current = (model) => {
     void analyzeDebugResult(model)
   }
+  useEffect(() => {
+    if (!includeContext || !activeDebugger) debuggerControl.close()
+  }, [includeContext, activeDebugger])
   const action: typeof codexAction = (value) => {
     debuggerControl.close()
     return codexAction(value)
@@ -245,78 +246,7 @@ const CodexSidebar = ({ projectName, projectPath }: { projectName: string; proje
             Project context, code editing and compilation · No PLC download.
           </p>
           <div className='mb-4 space-y-2 text-xs'>
-            <label className='flex items-center gap-2'>
-              <input
-                type='checkbox'
-                checked={includeContext}
-                disabled={working || state.busy}
-                onChange={(event) => {
-                  setIncludeContext(event.target.checked)
-                  if (!event.target.checked) setIncludeDebugger(false)
-                  if (!event.target.checked) debuggerControl.close()
-                }}
-                className='accent-brand'
-              />
-              Include current project and IO context
-            </label>
-            <label className='flex items-center gap-2'>
-              <input
-                type='checkbox'
-                checked={activeDebugger && includeContext}
-                disabled={!includeContext || working || state.busy}
-                onChange={(event) => {
-                  setActiveDebugger(event.target.checked)
-                  if (!event.target.checked) debuggerControl.close()
-                }}
-                className='accent-brand'
-              />
-              Enable active debugger commands
-            </label>
-            <label className='flex items-center gap-2'>
-              <input
-                type='checkbox'
-                checked={includeContext && includeDebugger}
-                disabled={!includeContext || working || state.busy}
-                onChange={(event) => setIncludeDebugger(event.target.checked)}
-                className='accent-brand'
-              />
-              Include debugger observations (read-only)
-            </label>
-            {includeContext && includeDebugger && (
-              <p className='text-neutral-800 dark:text-neutral-400'>
-                Shares sampled watch values, IEC status and call stack when available. Connect and watch variables in
-                the debugger first. No extra PLC requests. Samples older than 5 seconds are stale; source matching is
-                unverified.
-              </p>
-            )}
-            <label className='flex items-center gap-2'>
-              <input
-                type='checkbox'
-                checked={proposeChanges && includeContext}
-                disabled={!includeContext || working || state.busy}
-                onChange={(event) => setProposeChanges(event.target.checked)}
-                className='accent-brand'
-              />
-              Enable ST / C++ editing
-            </label>
-            <label className='block'>
-              Code changes
-              <select
-                aria-label='Code changes'
-                value={directEdits ? 'direct' : 'review'}
-                disabled={!includeContext || !proposeChanges || working || state.busy}
-                onChange={(event) => setDirectEdits(event.target.value === 'direct')}
-                className='mt-1 block w-full rounded border bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900'
-              >
-                <option value='direct'>Apply requested changes directly</option>
-                <option value='review'>Review changes first</option>
-              </select>
-            </label>
-            <p className='text-neutral-800 dark:text-neutral-400'>
-              {includeContext && proposeChanges && directEdits
-                ? 'Requested edits are applied to unsaved editor buffers after validation. Undo remains available until another edit or save. No automatic save or PLC download.'
-                : 'Changes require review and Apply. Project context and editing must be enabled to create or change code.'}
-            </p>
+            <PlcAiSettings projectPath={projectPath} disabled={working || state.busy} />
             <button
               type='button'
               className={buttonClass}

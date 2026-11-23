@@ -3,6 +3,7 @@ import {
   PLCDataTypeSchema,
   PLCFunctionBlockSchema,
   PLCFunctionSchema,
+  PLCGlobalVariableListSchema,
   PLCInstanceSchema,
   PLCPouSchema,
   PLCProgramSchema,
@@ -133,6 +134,7 @@ const _projectActionsSchema = z.object({
    */
   setProject: z.function().args(projectStateSchema).returns(z.void()),
   setPous: z.function().args(z.array(PLCPouSchema)).returns(z.void()),
+  setGlobalVariableLists: z.function().args(z.array(PLCGlobalVariableListSchema).optional()).returns(z.void()),
   clearProjects: z.function().args(z.void()).returns(z.void()),
 
   /**

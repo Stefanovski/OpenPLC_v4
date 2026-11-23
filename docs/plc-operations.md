@@ -2,7 +2,7 @@
 
 These shared operations support multiple AI adapters. The existing Codex sidebar,
 runtime profile and IPC channel names remain compatible. An opt-in local
-[MCP adapter](mcp-integration.md) now exposes these operations through reviewed
+[MCP adapter](mcp-integration.md) now exposes these operations through shared-settings-controlled
 editor requests; account login and provider selection remain separate concerns.
 
 ## Boundaries

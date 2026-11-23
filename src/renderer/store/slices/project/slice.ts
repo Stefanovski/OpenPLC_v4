@@ -44,6 +44,14 @@ const createProjectSlice: StateCreator<ProjectSlice, [], [], ProjectSlice> = (se
   },
 
   projectActions: {
+    setGlobalVariableLists: (lists) => {
+      setState(
+        produce(({ project }: ProjectSlice) => {
+          if (lists === undefined) delete project.data.globalVariableLists
+          else project.data.globalVariableLists = lists
+        }),
+      )
+    },
     /**
      * Update/Set Project state
      */

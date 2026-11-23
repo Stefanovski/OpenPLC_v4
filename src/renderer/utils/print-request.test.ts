@@ -1,3 +1,4 @@
+import { gvlFixture } from '../../../scripts/eurosonic/fixtures/gvl'
 import type { RootState } from '../store'
 import { buildPrintRequest, defaultPrintPage, PrintSelection } from './print-request'
 
@@ -123,5 +124,20 @@ it('formats configuration as readable tables with IEC types and preserves the so
   expect(config.tables.find((t) => t.title.includes('CONFIG'))?.rows).toEqual([['Threshold', 'DINT', '10']])
   expect(config.tables.find((t) => t.title.includes('VALUES'))?.rows).toEqual([['0..7', 'CONFIG', '']])
   expect(config.tables.find((t) => t.title.includes('Mode'))?.rows).toEqual([['Idle, Run', 'Idle']])
+  expect(source).toEqual(before)
+})
+
+it('prints valid GVLs as tables and incomplete drafts as text without losing edits', () => {
+  const source = state()
+  source.project.data.globalVariableLists = gvlFixture().globalVariableLists
+  source.project.data.globalVariableLists![0].variablesText = 'VAR_GLOBAL\n Lamp AT %QX120.6 : BOOL;\nEND_VAR'
+  source.project.data.globalVariableLists![1].variablesText = 'VAR_GLOBAL RETAIN\n Count :'
+  const before = structuredClone(source)
+  const request = buildPrintRequest(source, selection())
+  const io = request.pous.find((p) => p.name.endsWith('GVL_IO'))
+  expect(io?.kind === 'configuration' && io.tables[0].rows[0]).toEqual(['Lamp', 'BOOL', '%QX120.6', '', '', ''])
+  expect(request.pous.find((p) => p.name.endsWith('GVL_State (draft)'))?.declarations?.[1].runs[0].text).toBe(
+    ' Count :',
+  )
   expect(source).toEqual(before)
 })

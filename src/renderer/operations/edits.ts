@@ -1,10 +1,11 @@
 import { baseTypeSchema, PLCPou, PLCPouSchema, PLCVariable } from '@root/types/PLC/open-plc'
 import type { PlcContextAttachment } from '@root/types/plc-operations/context'
 import { parsePlcContext } from '@root/types/plc-operations/context'
-import { parsePlcEditReply,PlcProposal } from '@root/types/plc-operations/edits'
+import { parsePlcEditReply, PlcProposal } from '@root/types/plc-operations/edits'
 import { validateEurosonicCpp } from '@root/utils/cpp/eurosonic'
 import { parseIecStringToVariables } from '@root/utils/generate-iec-string-to-variables'
 import { isLegalIdentifier } from '@root/utils/keywords'
+import { lowerGlobalVariableLists } from '@root/utils/PLC/global-variable-lists'
 
 import type { RootState } from '../store'
 import type { EditorModel } from '../store/slices/editor'
@@ -235,6 +236,7 @@ export function preparePlcChanges(state: RootState, proposal: PlcProposal) {
     editor: updateEditor(state.editor),
     editors: state.editors.map(updateEditor),
   }
+  lowerGlobalVariableLists(patch.project.data)
   const after = { ...state, ...patch, workspace: { ...state.workspace, editingState: 'unsaved' as const } }
   const undo: PlcUndo = {
     projectPath: state.project.meta.path,

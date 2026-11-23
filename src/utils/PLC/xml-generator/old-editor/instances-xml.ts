@@ -33,6 +33,7 @@ export const oldEditorInstanceToXml = (xml: BaseXml, configuration: PLCConfigura
     xml.project.instances.configurations.configuration.resource.task.push(t)
   })
 
+  const groups: Array<{ variable: VariableXML[]; '@retain'?: 'true' }> = []
   globalVariables.forEach((variable) => {
     const v: VariableXML = {
       '@name': variable.name,
@@ -52,16 +53,17 @@ export const oldEditorInstanceToXml = (xml: BaseXml, configuration: PLCConfigura
       },
     }
 
-    if (!xml.project.instances.configurations.configuration.globalVars) {
-      xml.project.instances.configurations.configuration.globalVars = {
-        variable: [],
-      }
+    // Bundled MatIEC drops RETAIN after the first global declaration in a block.
+    // Emit each retained global in its own block; keep ordinary globals grouped.
+    let group = variable.retain ? undefined : groups.find((item) => !item['@retain'])
+    if (!group) {
+      group = { variable: [], ...(variable.retain ? { '@retain': 'true' as const } : {}) }
+      groups.push(group)
     }
-    if (!xml.project.instances.configurations.configuration.globalVars.variable) {
-      xml.project.instances.configurations.configuration.globalVars.variable = []
-    }
-    xml.project.instances.configurations.configuration.globalVars.variable.push(v)
+    group.variable.push(v)
   })
 
+  if (groups.length)
+    xml.project.instances.configurations.configuration.globalVars = groups.length === 1 ? groups[0] : groups
   return xml
 }

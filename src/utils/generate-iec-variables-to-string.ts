@@ -11,6 +11,7 @@ const classToVarBlock: Record<string, string> = {
   inout: 'VAR_IN_OUT',
   external: 'VAR_EXTERNAL',
   global: 'VAR_GLOBAL',
+  globalRetain: 'VAR_GLOBAL RETAIN',
   temp: 'VAR_TEMP',
 }
 
@@ -21,7 +22,12 @@ export const generateIecVariablesToString = (variables: TextVariable[]): string 
 
   const groupedVariables = variables.reduce(
     (acc, variable) => {
-      const key = variable.class === 'local' && variable.retain ? 'retain' : (variable.class ?? 'global').toLowerCase()
+      const key =
+        variable.retain && (!variable.class || variable.class === 'global')
+          ? 'globalRetain'
+          : variable.class === 'local' && variable.retain
+            ? 'retain'
+            : (variable.class ?? 'global').toLowerCase()
 
       if (!acc[key]) {
         acc[key] = []
@@ -33,7 +39,7 @@ export const generateIecVariablesToString = (variables: TextVariable[]): string 
   )
 
   let textualDeclaration = ''
-  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'retain', 'temp']
+  const orderedGroups = ['global', 'globalRetain', 'external', 'input', 'output', 'inout', 'local', 'retain', 'temp']
 
   orderedGroups.forEach((groupName) => {
     if (groupedVariables[groupName]) {

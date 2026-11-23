@@ -3,6 +3,7 @@ import { BaseXml as oldBaseXml } from '@root/types/PLC/xml-data/old-editor'
 import { create } from 'xmlbuilder2'
 
 import type { ProjectState } from '../../renderer/store/slices'
+import { lowerGlobalVariableLists } from './global-variable-lists'
 import {
   codeSysInstanceToXml,
   codeSysParseDataTypesToXML,
@@ -20,6 +21,7 @@ const XmlGenerator = (
   projectToGenerateXML: ProjectState['data'],
   xmlFormatTarget: 'old-editor' | 'codesys' = 'old-editor',
 ) => {
+  projectToGenerateXML = lowerGlobalVariableLists(projectToGenerateXML)
   let xmlResult = xmlFormatTarget === 'old-editor' ? getBaseOldEditorXmlStructure() : getBaseCodeSysXmlStructure()
 
   /**

@@ -6,6 +6,7 @@ import type { IecDebugMetadata } from '../../../types/PLC/iec-debug'
 import type { PlcDebugExecute } from '../../../types/plc-operations/debugger'
 import { addCppLocalVariables } from '../../../utils/cpp/addCppLocalVariables'
 import { generateEurosonicCppST } from '../../../utils/cpp/eurosonic'
+import { displayGvlPath, lowerGlobalVariableLists } from '../../../utils/PLC/global-variable-lists'
 import { wrapUnsupportedComments } from '../../../utils/PLC/wrap-unsupported-comments'
 import { XmlGenerator } from '../../../utils/PLC/xml-generator'
 import {
@@ -20,7 +21,7 @@ const canonicalXml = (xml: string) =>
   xml.replace(/\b(?:creationDateTime|modificationDateTime)="[^"]*"/g, '').replace(/\r\n/g, '\n')
 /** Reconstructs compiler input in memory only. No transpiler, compiler, file write or upload. */
 export function debugProjectSources(request: Pick<PlcDebugExecute, 'data'>) {
-  const data = addCppLocalVariables(structuredClone(request.data))
+  const data = addCppLocalVariables(structuredClone(lowerGlobalVariableLists(request.data)))
   for (const pou of data.pous) {
     if (pou.data.body.language === 'python') throw new Error('Python is not supported by active PLC debugging.')
     if (pou.data.body.language === 'cpp')
@@ -77,7 +78,10 @@ export async function loadVerifiedDebugSource(request: PlcDebugExecute) {
       throw new Error('Debug build lacks source-bound identity. Explicitly rebuild/download before connecting.')
   }
   return {
-    metadata,
+    metadata: {
+      ...metadata,
+      variables: metadata.variables.map((v) => ({ ...v, path: displayGvlPath(v.path, request.data) })),
+    },
     md5: md5.toLowerCase(),
     identity: digest(raw + st + expected.files.map((f) => f.content).join('\0')),
   }

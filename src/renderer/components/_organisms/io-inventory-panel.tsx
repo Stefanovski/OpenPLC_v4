@@ -116,6 +116,9 @@ export function IoInventoryPanel() {
   const references: string[] = []
   for (const variable of project.data.configuration.resource.globalVariables)
     if (addresses.has(variable.location)) references.push(`Global: ${variable.name} (${variable.location})`)
+  for (const list of project.data.globalVariableLists ?? [])
+    for (const variable of list.variables)
+      if (addresses.has(variable.location)) references.push(`${list.name}.${variable.name} (${variable.location})`)
   for (const pou of project.data.pous) {
     for (const v of pou.data.variables)
       if (addresses.has(v.location)) references.push(`${pou.data.name}: ${v.name} (${v.location})`)
@@ -271,7 +274,7 @@ export function IoInventoryPanel() {
         slots and enables their PLC IO exchange. Project addresses and expected layout are only changed separately.
       </p>
       <Modal open={rescanConfirm} onOpenChange={setRescanConfirm}>
-        <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto'>
+        <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto text-neutral-950 dark:text-neutral-100'>
           <ModalTitle>Read IO hardware</ModalTitle>
           <p className='text-sm'>
             Scan generator {host} for newly powered cards. New output cards will use the current PLC output values
@@ -295,7 +298,7 @@ export function IoInventoryPanel() {
         </ModalContent>
       </Modal>
       <Modal open={confirm} onOpenChange={setConfirm}>
-        <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto'>
+        <ModalContent className='h-fit max-h-[85vh] w-[520px] overflow-auto text-neutral-950 dark:text-neutral-100'>
           <ModalTitle>Use detected IO layout?</ModalTitle>
           <p className='text-sm'>
             Replace the project's expected module layout with the seven detected slots. PLC code and variable addresses

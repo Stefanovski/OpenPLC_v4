@@ -642,7 +642,7 @@ class CompilerModule {
       pous: Array<{ id: number; key: string; name: string; kind: string }>
     }
     const instances = parseIecDebugInstances(variablesCsv, parsedMetadata.pous)
-    const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv), instances)
+    const variables = bindIecDebugVariablesToInstances(parseIecDebugVariables(variablesCsv, debugSource), instances)
     const sourceMap = parseXml2stSourceMap(sourceMapJson, projectXml, programSt)
     const graphicalBindings = buildGraphicalDebugBindings(
       projectData,

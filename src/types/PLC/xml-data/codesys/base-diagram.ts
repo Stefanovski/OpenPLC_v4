@@ -56,9 +56,12 @@ const baseXmlSchema = z.object({
             task: z.array(taskXMLSchema),
           }),
           globalVars: z
-            .object({
-              variable: z.array(variableXMLSchema).optional(),
-            })
+            .union([
+              z.object({ variable: z.array(variableXMLSchema).optional(), '@retain': z.literal('true').optional() }),
+              z.array(
+                z.object({ variable: z.array(variableXMLSchema).optional(), '@retain': z.literal('true').optional() }),
+              ),
+            ])
             .optional(),
         }),
       }),

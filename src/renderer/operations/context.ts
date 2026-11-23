@@ -1,4 +1,4 @@
-import { parsePlcContext,PlcContext, PlcContextAttachment } from '@root/types/plc-operations/context'
+import { parsePlcContext, PlcContext, PlcContextAttachment } from '@root/types/plc-operations/context'
 
 import type { RootState } from '../store'
 import { getIoObservation, IoObservation } from '../utils/io-observation'
@@ -78,6 +78,18 @@ export function buildPlcContext(
           globalsText !== undefined
             ? { source: 'raw-text', text: globalsText }
             : { source: 'table', variables: resource.globalVariables },
+        ...(state.project.data.globalVariableLists?.length
+          ? {
+              globalVariableLists: state.project.data.globalVariableLists.map((list) => ({
+                name: list.name,
+                documentation: list.documentation,
+                declarations:
+                  list.variablesText === undefined
+                    ? { source: 'table' as const, variables: list.variables }
+                    : { source: 'raw-text' as const, text: list.variablesText },
+              })),
+            }
+          : {}),
         tasks: resource.tasks,
         instances: resource.instances,
       },

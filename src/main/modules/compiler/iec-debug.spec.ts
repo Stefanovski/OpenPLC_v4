@@ -74,6 +74,40 @@ describe('IEC debug build helpers', () => {
     })
   })
 
+  it('binds local variables after nested GVL aliases to the actual runtime indices', () => {
+    const csv = `
+0;VAR;CONFIG0.GVL_STATE_MARKER;CONFIG0.GVL_STATE_MARKER;DINT;DINT;1;
+1;FB;CONFIG0.RES0.INSTANCE0.PROBE;CONFIG0.RES0.INSTANCE0.PROBE;PROBE;;0;
+2;EXT;CONFIG0.RES0.INSTANCE0.PROBE.GVL_STATE_MARKER;CONFIG0.RES0.INSTANCE0.PROBE.GVL_STATE_MARKER;DINT;DINT;0;
+3;VAR;CONFIG0.RES0.INSTANCE0.PROBE.READY;CONFIG0.RES0.INSTANCE0.PROBE.READY;BOOL;BOOL;0;
+4;VAR;CONFIG0.RES0.INSTANCE0.RETAINPROBE;CONFIG0.RES0.INSTANCE0.RETAINPROBE;DINT;DINT;1;
+5;EXT;CONFIG0.RES0.INSTANCE0.GVL_STATE_MARKER;CONFIG0.RES0.INSTANCE0.GVL_STATE_MARKER;DINT;DINT;0;
+6;OUT;CONFIG0.RES0.INSTANCE0.LAMP;CONFIG0.RES0.INSTANCE0.LAMP;BOOL;BOOL;0;
+`
+    const debugSource = `debug_vars[] = {
+      {&(CONFIG0__GVL_STATE_MARKER), DINT_ENUM},
+      {&(RES0__INSTANCE0.PROBE.GVL_STATE_MARKER), DINT_P_ENUM},
+      {&(RES0__INSTANCE0.PROBE.READY), BOOL_ENUM},
+      {&(RES0__INSTANCE0.RETAINPROBE), DINT_ENUM},
+      {&(RES0__INSTANCE0.LAMP), BOOL_O_ENUM},
+    };
+    #define VAR_COUNT 5`
+    const variables = parseIecDebugVariables(csv, debugSource)
+    expect(variables).toHaveLength(4)
+    expect(variables.find((v) => v.name.endsWith('.READY'))?.legacy_index).toBe(2)
+    expect(variables.find((v) => v.name.endsWith('.RETAINPROBE'))?.legacy_index).toBe(3)
+    expect(variables.find((v) => v.name.endsWith('.LAMP'))?.legacy_index).toBe(4)
+    expect(() => parseIecDebugVariables(csv, debugSource.replace('RETAINPROBE', 'OTHER'))).toThrow(
+      'does not match the generated runtime table',
+    )
+    expect(() => parseIecDebugVariables(csv, debugSource.replace('VAR_COUNT 5', 'VAR_COUNT 6'))).toThrow(
+      'variable count',
+    )
+    expect(() => parseIecDebugVariables(csv, debugSource.replace('BOOL_O_ENUM', 'UDINT_O_ENUM'))).toThrow(
+      'does not match the generated runtime table',
+    )
+  })
+
   it('enriches versioned metadata and emits a sorted embedded adapter', () => {
     const variables = parseIecDebugVariables(
       '1;VAR;CONFIG0.RES0.INSTANCE0.COUNTER;CONFIG0.RES0.INSTANCE0.COUNTER;DINT;DINT;0;\n',

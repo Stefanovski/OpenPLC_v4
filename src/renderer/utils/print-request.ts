@@ -1,4 +1,5 @@
 import type { PrintPageSetup, PrintPou, PrintRequest, PrintVar } from '@root/types/IPC/print'
+import { parseGvlDeclarations } from '@root/utils/PLC/global-variable-lists'
 
 import type { RootState } from '../store'
 import { buildConfigurationTables } from './print-configuration'
@@ -45,6 +46,33 @@ export function buildPrintRequest(state: PrintState, selection: PrintSelection):
         : { declarations: lines('Global variables — current declaration text\n' + pendingGlobals) }),
     })
   }
+
+  if (selection.includeConfiguration)
+    for (const list of state.project.data.globalVariableLists ?? []) {
+      try {
+        const variables =
+          list.variablesText === undefined
+            ? list.variables
+            : parseGvlDeclarations(list.variablesText, state.project.data)
+        pous.push({
+          name: `${state.project.meta.name} � ${list.name}`,
+          kind: 'configuration',
+          variables: [],
+          tables: buildConfigurationTables({ globalVariables: variables, tasks: [], instances: [] }, [], false).slice(
+            0,
+            1,
+          ),
+        })
+      } catch {
+        pous.push({
+          name: `${state.project.meta.name} � ${list.name} (draft)`,
+          kind: 'configuration',
+          variables: [],
+          tables: [],
+          declarations: lines(list.variablesText ?? ''),
+        })
+      }
+    }
 
   for (const pou of state.project.data.pous.filter((candidate) => selection.names.includes(candidate.data.name))) {
     const editor = editors.get(pou.data.name)

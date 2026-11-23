@@ -13,6 +13,16 @@ const createHistorySlice: StateCreator<HistorySlice, [], [], HistorySlice> = (se
     },
   },
   historyActions: {
+    // Redo records the current state without discarding the remaining redo chain.
+    addRedoPastHistory: (pouName, snapshot) => {
+      setState(
+        produce(({ history }: HistorySlice) => {
+          const bucket = (history[pouName] ??= { past: [], future: [] })
+          bucket.past.push(snapshot as unknown as HistorySnapshot)
+          if (bucket.past.length > HISTORY_LIMIT) bucket.past.shift()
+        }),
+      )
+    },
     addPastHistory: (pouName: string, snapshot) => {
       setState(
         produce(({ history }: HistorySlice) => {

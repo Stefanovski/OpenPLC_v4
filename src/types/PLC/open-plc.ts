@@ -162,6 +162,15 @@ type PLCVariable = z.infer<typeof PLCVariableSchema>
 const PLCGlobalVariableSchema = PLCVariableSchema
 type PLCGlobalVariable = z.infer<typeof PLCGlobalVariableSchema>
 
+const PLCGlobalVariableListSchema = z.object({
+  name: z.string(),
+  documentation: z.string(),
+  variables: z.array(PLCVariableSchema.omit({ class: true })),
+  // Keep incomplete edits on save; compilation validates this text before use.
+  variablesText: z.string().optional(),
+})
+type PLCGlobalVariableList = z.infer<typeof PLCGlobalVariableListSchema>
+
 const PLCTaskSchema = z.object({
   name: z.string(), // TODO: This should be homologate. Concept: An unique identifier for the task object.
   triggering: z.enum(['Cyclic', 'Interrupt']),
@@ -292,6 +301,7 @@ type PLCDebugVariables = z.infer<typeof PLCDebugVariablesSchema>
 
 const PLCProjectDataSchema = z.object({
   dataTypes: z.array(PLCDataTypeSchema),
+  globalVariableLists: z.array(PLCGlobalVariableListSchema).optional(),
   pous: z.array(PLCPouSchema).default([]),
   configuration: PLCConfigurationSchema,
   debugVariables: PLCDebugVariablesSchema,
@@ -331,6 +341,7 @@ export {
   PLCEnumeratedDatatypeSchema,
   PLCFunctionBlockSchema,
   PLCFunctionSchema,
+  PLCGlobalVariableListSchema,
   PLCGlobalVariableSchema,
   PLCInstanceSchema,
   PLCPouSchema,
@@ -355,6 +366,7 @@ export type {
   PLCFunction,
   PLCFunctionBlock,
   PLCGlobalVariable,
+  PLCGlobalVariableList,
   PLCInstance,
   PLCPou,
   PLCProgram,
