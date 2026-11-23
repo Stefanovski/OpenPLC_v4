@@ -80,7 +80,7 @@ const ProjectTreeRoot = ({ children, label, ...res }: IProjectTreeRootProps) => 
 }
 
 type ProjectTreeBranchProps = ComponentPropsWithoutRef<'li'> & {
-  branchTarget: 'data-type' | 'function' | 'function-block' | 'program' | 'resource' | 'device'
+  branchTarget: 'data-type' | 'function' | 'function-block' | 'program' | 'resource' | 'device' | 'gvl'
   children?: ReactNode
 }
 
@@ -90,6 +90,7 @@ const BranchSources = {
   'function-block': { BranchIcon: FunctionBlockIcon, label: 'Function Blocks' },
   program: { BranchIcon: ProgramIcon, label: 'Programs' },
   resource: { BranchIcon: ResourceIcon, label: 'Resource' },
+  gvl: { BranchIcon: ResourceIcon, label: 'Global Variable Lists' },
   device: { BranchIcon: DeviceIcon, label: 'Device' },
 }
 const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranchProps) => {
@@ -105,10 +106,11 @@ const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranch
   const hasAssociatedPou =
     pous.some((pou) => pou.type === branchTarget) ||
     branchTarget === 'device' ||
+    branchTarget === 'gvl' ||
     (branchTarget === 'data-type' && dataTypes.length > 0)
   useEffect(() => setBranchIsOpen(hasAssociatedPou), [hasAssociatedPou])
 
-  const { file: associatedFile } = getFile({ name: label || '' })
+  const { file: associatedFile } = getFile({ name: branchTarget === 'gvl' ? 'Resource' : label || '' })
   const handleLabel = useCallback((label: string | undefined) => unsavedLabel(label, associatedFile), [associatedFile])
 
   return (

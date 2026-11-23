@@ -159,6 +159,7 @@ const editorModelSchema = z.discriminatedUnion('type', [
       meta: z.object({
         name: z.string(),
         path: z.string(),
+        globalVariableList: z.string().optional(),
       }),
       variable: editorGlobalVariablesSchema,
       task: taskSchema,
@@ -260,6 +261,7 @@ const _editorActionsSchema = z.object({
     .returns(z.void()),
 
   setEditor: z.function().args(editorModelSchema).returns(z.void()),
+  selectGlobalVariableList: z.function().args(z.string().optional()).returns(z.void()),
   clearEditor: z.function().returns(z.void()),
   saveEditorViewState: z
     .function()
