@@ -216,6 +216,83 @@ no failed reads during the sampled transition. The debugger reported
 `RecipeTestStatus = 2`. The M7 firmware needs the recipe extension from commit
 `edac4ef`, and the PLC image needs to be built with the Eurosonic storage runtime.
 
+## Prebuilt static libraries
+
+A project can ship prebuilt static libraries (for example a Rust `no_std` crate)
+and call them from a C/C++ function block.
+
+```text
+MyProject/
+  project.json
+  pous/function-blocks/Weld.cpp   (language cpp)
+  libs/
+    libweld.a        every top-level *.a is linked
+    weld.h           headers: the folder is on the include path
+```
+
+On every build the editor deletes `build/<board>/libs` and copies the project's
+whole `libs/` folder there, so a replaced or removed library is always picked
+up. The files are never modified. CMake then adds that folder to the include
+path and links every top-level `libs/*.a` inside
+`-Wl,--start-group ... -Wl,--end-group`, so the order of libraries does not
+matter. Other files in the folder (headers, notes, sub-folders) are copied but
+not linked. Without a `libs/` folder the build is unchanged. Other boards are
+not affected.
+
+Requirements:
+
+- **ABI.** The target is `-mcpu=cortex-m7 -mthumb` with the **soft-float ABI**.
+  For Rust use `thumbv7em-none-eabi`, not `thumbv7em-none-eabihf`. C/C++ must
+  not use `-mfloat-abi=hard`. Before linking, `check_static_libs.py` reads the
+  `.ARM.attributes` of every object in every library and fails the build with
+  the library and member name if one uses the hard-float ABI or is not ARM.
+- **Size.** The PLC image has 256 KB of flash at `0x081C0000`, shared with the
+  generated program and runtime. `.data` counts against it too (its initial
+  values are stored there). `.bss` and `.data` live in a 128 KB RAM region.
+  An overflow fails the link with `region 'FLASH' overflowed`.
+- **No startup code.** The PLC loader copies `.data` and clears `.bss` but runs
+  no C++ constructors. Do not rely on global constructors in a library.
+- **Errors.** An unresolved symbol or an overflow fails the build; both
+  messages appear in the editor's build log.
+- **Keep libraries freestanding.** Libraries that use C++ exceptions or
+  libstdc++ pull in newlib system calls (`_sbrk`, `_read`, ...) that the PLC
+  image does not provide. Rust `no_std` with `panic = "abort"` and plain C
+  libraries link cleanly.
+
+`scripts/eurosonic/test_libs_arm.py` rebuilds this flow offline with fixture
+libraries, including the failure cases.
+
+Minimal example. `libs/weld.h`:
+
+```c
+#ifdef __cplusplus
+extern "C" {
+#endif
+int32_t weld_add(int32_t a, int32_t b);
+#ifdef __cplusplus
+}
+#endif
+```
+
+The Rust side is `#[no_mangle] pub extern "C" fn weld_add(a: i32, b: i32) -> i32`,
+built with `cargo rustc --release --target thumbv7em-none-eabi --crate-type staticlib`.
+Copy `libweld.a` to `libs/`. In a function block with `Input: INT` and
+`Output: INT`:
+
+```cpp
+#include <stdint.h>
+#include "weld.h"
+
+void setup() {}
+
+void loop()
+{
+    Output = (int16_t)weld_add(Input, 1);
+}
+```
+
+The symbol then appears in `build/<board>/build/OpenPLC.map`.
+
 ## Supported interface and limits
 
 - Elementary IEC types, including TIME/DATE/TOD/DT and STRING, and arrays of

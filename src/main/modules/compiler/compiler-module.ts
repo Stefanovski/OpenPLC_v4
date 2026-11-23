@@ -26,6 +26,7 @@ import * as tftp from 'tftp'
 
 import type { ArduinoCoreControl, HalsFile } from './compiler-types'
 import { writeEurosonicCppFiles } from './eurosonic-cpp'
+import { copyEurosonicLibs } from './eurosonic-libs'
 import {
   EUROSONIC_PLC_FLASH_SIZE_BYTES,
   EUROSONIC_PLC_HEADER_SIZE_BYTES,
@@ -440,7 +441,11 @@ class CompilerModule {
   // }
 
   // STN: Copy static files needed for eurosonic
-  async copyStaticFiles(compilationPath: string, boardCompiler: string): Promise<MethodsResult<string>> {
+  async copyStaticFiles(
+    compilationPath: string,
+    boardCompiler: string,
+    projectPath?: string,
+  ): Promise<MethodsResult<string>> {
     let result: MethodsResult<string> = { success: false }
     let filesToCopy: Promise<void>[] = []
 
@@ -464,6 +469,8 @@ class CompilerModule {
     try {
       // Implement the logic to copy static build files.
       const results = await Promise.all(filesToCopy)
+      // Project-supplied prebuilt libraries (libs/*.a, headers): copied on every build.
+      if (projectPath && isEurosonicCompiler(boardCompiler)) await copyEurosonicLibs(projectPath, compilationPath)
       if (results.every((res) => res === undefined)) {
         result = { success: true, data: 'Static build files available' }
       }
@@ -2541,7 +2548,7 @@ class CompilerModule {
       // -- Copy static files --
       _mainProcessPort.postMessage({ logLevel: 'info', message: 'Copying static files...' })
       try {
-        await this.copyStaticFiles(compilationPath, boardRuntime)
+        await this.copyStaticFiles(compilationPath, boardRuntime, normalizedProjectPath)
         _mainProcessPort.postMessage({ logLevel: 'info', message: 'Static files copied successfully.' })
       } catch (error) {
         _mainProcessPort.postMessage({
@@ -2930,7 +2937,7 @@ class CompilerModule {
     }
 
     try {
-      await this.copyStaticFiles(compilationPath, boardRuntime)
+      await this.copyStaticFiles(compilationPath, boardRuntime, normalizedProjectPath)
       _mainProcessPort.postMessage({ logLevel: 'info', message: 'Static files copied successfully.' })
     } catch (error) {
       _mainProcessPort.postMessage({

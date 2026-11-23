@@ -50,8 +50,24 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/src/eurosonic_cpp_types.h)
     )
 endif()
 
-# Add libraries if necessary
-#target_link_libraries(OpenPLC PRIVATE <external_library>)
+# Prebuilt libraries and headers shipped with the project. The editor copies the
+# project's libs/ folder here on every build. Without it nothing changes.
+if(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/libs)
+    target_include_directories(OpenPLC PRIVATE ${CMAKE_SOURCE_DIR}/libs)
+    file(GLOB PROJECT_STATIC_LIBS ${CMAKE_SOURCE_DIR}/libs/*.a)
+    if(PROJECT_STATIC_LIBS)
+        list(SORT PROJECT_STATIC_LIBS)
+        # Reject libraries built for another ABI before the linker reports them cryptically.
+        add_custom_command(TARGET OpenPLC PRE_LINK
+            COMMAND python ${CMAKE_SOURCE_DIR}/check_static_libs.py ${PROJECT_STATIC_LIBS}
+            VERBATIM
+        )
+        # A group makes the link order of the libraries irrelevant.
+        target_link_libraries(OpenPLC PRIVATE
+            -Wl,--start-group ${PROJECT_STATIC_LIBS} -Wl,--end-group
+        )
+    endif()
+endif()
 
 # Use the custom toolchain
 set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/toolchain.cmake)
