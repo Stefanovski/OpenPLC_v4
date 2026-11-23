@@ -6,10 +6,10 @@ import { addCppLocalVariables } from '../../src/utils/cpp/addCppLocalVariables'
 import { generateEurosonicCppST } from '../../src/utils/cpp/eurosonic'
 import { lowerGlobalVariableLists } from '../../src/utils/PLC/global-variable-lists'
 import { XmlGenerator } from '../../src/utils/PLC/xml-generator'
-import { gvlFixture } from './fixtures/gvl'
+import { gvlFixture, multiRetainGvlFixture } from './fixtures/gvl'
 
 async function main() {
-  let project = gvlFixture()
+  let project = process.argv.includes('--multi-retain') ? multiRetainGvlFixture() : gvlFixture()
   if (process.argv.includes('--cpp')) {
     project.pous.unshift({
       type: 'function-block',

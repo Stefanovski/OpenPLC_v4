@@ -59,3 +59,28 @@ export const gvlFixture = (): PLCProjectData => ({
     },
   },
 })
+
+/** Several retained globals, including an unused member and repeated member names across lists. */
+export function multiRetainGvlFixture(): PLCProjectData {
+  const project = gvlFixture()
+  const retained = (name: string, value: 'udint' | 'bool' | 'dint', initialValue: string) => ({
+    name,
+    type: { definition: 'base-type' as const, value },
+    location: '',
+    documentation: '',
+    initialValue,
+    retain: true as const,
+  })
+  project.globalVariableLists![1].variables.push(retained('Marker', 'udint', '123456'))
+  project.globalVariableLists!.push({
+    name: 'GVL_Second',
+    documentation: '',
+    variables: [
+      retained('Count', 'udint', '17'),
+      retained('Enabled', 'bool', 'TRUE'),
+      { name: 'Scratch', type: { definition: 'base-type', value: 'udint' }, location: '', documentation: '' },
+      retained('Signed', 'dint', '-7'),
+    ],
+  })
+  return project
+}

@@ -32,7 +32,7 @@ class GvlMatiecTests(unittest.TestCase):
                 result = subprocess.run([str(a) for a in args], cwd=cwd, env=dict(os.environ, PATH=str(GCC.parent)+os.pathsep+os.environ['PATH']), capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-6000:])
                 return result
-            run(['node', '-r', 'ts-node/register/transpile-only', '-r', 'tsconfig-paths/register', REPO / 'scripts/eurosonic/write-gvl-fixture.ts', src], REPO)
+            run(['node', '-r', 'ts-node/register/transpile-only', '-r', 'tsconfig-paths/register', REPO / 'scripts/eurosonic/write-gvl-fixture.ts', src, '--multi-retain'], REPO)
             run([XML, '--generate-st', src / 'plc.xml'])
             generated_st = (src / 'program.st').read_text()
             run([IEC, '-f', '-p', '-i', '-l', '-I', src / 'lib', 'program.st'])
@@ -54,12 +54,22 @@ extern void config_init__(void), config_run__(unsigned long), glueVars(void);
 extern IEC_BOOL *bool_input[256][8], *bool_output[256][8];
 extern IEC_UINT *int_input[2048], *int_output[2048];
 extern __IEC_UDINT_t CONFIG0__GVL_STATE_COUNT, CONFIG0__GVL_STATE_VOLATILE;
+extern __IEC_UDINT_t CONFIG0__GVL_STATE_MARKER, CONFIG0__GVL_SECOND_COUNT, CONFIG0__GVL_SECOND_SCRATCH;
+extern __IEC_BOOL_t CONFIG0__GVL_SECOND_ENABLED;
+extern __IEC_DINT_t CONFIG0__GVL_SECOND_SIGNED;
 extern void *get_var_addr(size_t);
 extern void force_var(size_t, bool, void *);
 extern int32_t plc_storage_variable(uint32_t, plc_retain_variable_t *);
 unsigned long __tick;
 int main(void) {
  glueVars(); config_init__();
+ assert(CONFIG0__GVL_STATE_COUNT.flags & __IEC_RETAIN_FLAG);
+ assert(CONFIG0__GVL_STATE_MARKER.flags & __IEC_RETAIN_FLAG);
+ assert(CONFIG0__GVL_SECOND_COUNT.flags & __IEC_RETAIN_FLAG);
+ assert(CONFIG0__GVL_SECOND_ENABLED.flags & __IEC_RETAIN_FLAG);
+ assert(CONFIG0__GVL_SECOND_SIGNED.flags & __IEC_RETAIN_FLAG);
+ assert(!(CONFIG0__GVL_STATE_VOLATILE.flags & __IEC_RETAIN_FLAG));
+ assert(!(CONFIG0__GVL_SECOND_SCRATCH.flags & __IEC_RETAIN_FLAG));
  assert(bool_output[120][6] && bool_input[100][0] && int_input[1000] && int_output[1200]);
  *bool_input[100][0] = 1; *int_input[1000] = 123;
  config_run__(0);
@@ -73,19 +83,41 @@ int main(void) {
  UDINT forced = 100; force_var(COUNT_INDEX, true, &forced); config_run__(3);
  assert(CONFIG0__GVL_STATE_COUNT.value == 100);
  force_var(COUNT_INDEX, false, 0); config_run__(4); assert(CONFIG0__GVL_STATE_COUNT.value == 101);
- plc_retain_variable_t item; void *retained = 0; uint32_t saved = 0; unsigned retainedCount = 0;
+ UDINT marker = 777777; force_var(MARKER_INDEX, true, &marker);
+ assert(CONFIG0__GVL_STATE_MARKER.value == marker);
+ force_var(MARKER_INDEX, false, 0);
+ assert(CONFIG0__GVL_STATE_MARKER.flags & __IEC_RETAIN_FLAG);
+ CONFIG0__GVL_STATE_MARKER.value = 654321;
+ CONFIG0__GVL_SECOND_COUNT.value = 1234;
+ CONFIG0__GVL_SECOND_ENABLED.value = 0;
+ CONFIG0__GVL_SECOND_SIGNED.value = -7654321;
+ CONFIG0__GVL_SECOND_SCRATCH.value = 999;
+ plc_retain_variable_t item; unsigned retainedCount = 0, retainedBytes = 0;
+ void *retained[5]; unsigned sizes[5]; unsigned char saved[5][8];
  for(unsigned i=0; plc_storage_variable(i, &item)>0; ++i) if(item.size) {
-  assert(item.size == 4); assert(strstr(item.name, "GVL_STATE_COUNT"));
-  retainedCount++; retained = item.data; memcpy(&saved, item.data, 4);
+  assert(retainedCount < 5 && item.size <= 8);
+  assert(item.data == &CONFIG0__GVL_STATE_COUNT.value || item.data == &CONFIG0__GVL_STATE_MARKER.value ||
+         item.data == &CONFIG0__GVL_SECOND_COUNT.value || item.data == &CONFIG0__GVL_SECOND_ENABLED.value ||
+         item.data == &CONFIG0__GVL_SECOND_SIGNED.value);
+  for(unsigned previous=0; previous<retainedCount; ++previous) assert(retained[previous] != item.data);
+  retained[retainedCount] = item.data; sizes[retainedCount] = item.size;
+  memcpy(saved[retainedCount], item.data, item.size);
+  retainedCount++; retainedBytes += item.size;
  }
- assert(retainedCount == 1 && saved == 101 && retained == &CONFIG0__GVL_STATE_COUNT.value);
+ assert(retainedCount == 5 && retainedBytes == 17);
  config_init__(); assert(CONFIG0__GVL_STATE_COUNT.value == 42 && CONFIG0__GVL_STATE_VOLATILE.value == 7);
- memcpy(retained, &saved, 4); config_run__(0);
+ assert(CONFIG0__GVL_STATE_MARKER.value == 123456 && CONFIG0__GVL_SECOND_COUNT.value == 17);
+ assert(CONFIG0__GVL_SECOND_ENABLED.value == 1 && CONFIG0__GVL_SECOND_SIGNED.value == -7);
+ for(unsigned i=0; i<retainedCount; ++i) memcpy(retained[i], saved[i], sizes[i]);
+ config_run__(0);
  assert(CONFIG0__GVL_STATE_COUNT.value == 102 && CONFIG0__GVL_STATE_VOLATILE.value == 8);
+ assert(CONFIG0__GVL_STATE_MARKER.value == 654321 && CONFIG0__GVL_SECOND_COUNT.value == 1234);
+ assert(CONFIG0__GVL_SECOND_ENABLED.value == 0 && CONFIG0__GVL_SECOND_SIGNED.value == -7654321);
+ assert(CONFIG0__GVL_SECOND_SCRATCH.value == 0);
  return 0;
 }
 """
-            test = test.replace('LAMP_INDEX', str(indices['GVL_IO_LAMP'])).replace('COUNT_INDEX', str(indices['GVL_STATE_COUNT']))
+            test = test.replace('LAMP_INDEX', str(indices['GVL_IO_LAMP'])).replace('COUNT_INDEX', str(indices['GVL_STATE_COUNT'])).replace('MARKER_INDEX', str(indices['GVL_STATE_MARKER']))
             (src / 'test.c').write_text(test)
             run([GCC, '-w', '-O2', '-ffunction-sections', '-fdata-sections', '-Wl,--gc-sections', '-I'+str(src/'lib'), '-I'+str(src), '-I'+str(root/'runtime'), 'test.c', 'Config0.c', 'Res0.c', 'POUS.c', 'debug.c', 'glueVars.c', '-o', 'test.exe'])
             run([src / 'test.exe'])

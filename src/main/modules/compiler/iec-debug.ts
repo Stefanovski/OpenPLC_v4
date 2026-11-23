@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import type { ProjectState } from '@root/renderer/store/slices'
+import { parseDebugFile } from '@root/renderer/utils/parse-debug-file'
 import type {
   IecDebugSourceIdentity,
   IecDebugSourceSpan,
@@ -206,9 +207,17 @@ export const prepareProjectForIecDebug = (
   return { projectData: debugProject, sourceFiles }
 }
 
-export const parseIecDebugVariables = (variablesCsv: string): IecDebugVariable[] => {
+export const parseIecDebugVariables = (variablesCsv: string, debugSource?: string): IecDebugVariable[] => {
   const variables: IecDebugVariable[] = []
   const ids = new Map<number, string>()
+  // xml2st includes some nested VAR_EXTERNAL aliases in debug_vars[]. These
+  // consume indices even though the stable catalogue exposes canonical globals.
+  // Use the generated table rather than counting only exported CSV entries.
+  const generated = debugSource === undefined ? undefined : parseDebugFile(debugSource)
+  if (generated && generated.variables.length !== generated.totalCount) {
+    throw new Error('Generated IEC debugger variable count does not match debug_vars[]')
+  }
+  const generatedByName = new Map(generated?.variables.map((variable) => [variable.name, variable]))
   let legacyIndex = 0
 
   for (const rawLine of variablesCsv.split(/\r?\n/)) {
@@ -221,6 +230,18 @@ export const parseIecDebugVariables = (variablesCsv: string): IecDebugVariable[]
     const name = fields[2]?.trim()
     const type = fields[5]?.trim().toUpperCase()
     if (!name || !type) throw new Error(`Invalid variable entry in VARIABLES.csv: '${line}'`)
+
+    let runtimeIndex = legacyIndex
+    if (generated) {
+      const parts = fields[3].trim().split('.')
+      const globalPath = `${parts[0]}__${parts.slice(1).join('.')}`
+      const instancePath = `${parts[1]}__${parts.slice(2).join('.')}`
+      const entry = generatedByName.get(globalPath) ?? generatedByName.get(instancePath)
+      if (!entry || entry.type.replace(/(?:_[PO])?_ENUM$/, '') !== type) {
+        throw new Error(`IEC debug variable '${name}' does not match the generated runtime table`)
+      }
+      runtimeIndex = entry.index
+    }
 
     const key = `var-v1:${name.toUpperCase()}:${type}`
     const id = fnv1a32(key)
@@ -237,7 +258,7 @@ export const parseIecDebugVariables = (variablesCsv: string): IecDebugVariable[]
       name,
       type,
       type_code: IEC_TYPE_CODES[type] ?? IecDebugVariableType.Unknown,
-      legacy_index: legacyIndex,
+      legacy_index: runtimeIndex,
       writable: (IEC_TYPE_CODES[type] ?? IecDebugVariableType.Unknown) !== IecDebugVariableType.Unknown,
       instance_id: 0,
       path: name,

@@ -16,7 +16,7 @@ def main():
         for debug, cpp in [(False, False), (True, False), (False, True), (True, True)]:
             root = fresh_fixture(Path(folder), 'debug-' if debug else 'normal-')
             run(['node', '-r', 'ts-node/register/transpile-only', '-r', 'tsconfig-paths/register',
-                 REPO / 'scripts/eurosonic/write-gvl-fixture.ts', root / 'src', *(['--debug'] if debug else []), *(['--cpp'] if cpp else [])], REPO)
+                 REPO / 'scripts/eurosonic/write-gvl-fixture.ts', root / 'src', '--multi-retain', *(['--debug'] if debug else []), *(['--cpp'] if cpp else [])], REPO)
             blocks = json.loads((root / 'src/cpp-fixture.json').read_text())
             build(root, args, blocks, debug=debug)
 

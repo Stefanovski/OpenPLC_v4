@@ -53,7 +53,9 @@ export const oldEditorInstanceToXml = (xml: BaseXml, configuration: PLCConfigura
       },
     }
 
-    let group = groups.find((item) => Boolean(item['@retain']) === Boolean(variable.retain))
+    // Bundled MatIEC drops RETAIN after the first global declaration in a block.
+    // Emit each retained global in its own block; keep ordinary globals grouped.
+    let group = variable.retain ? undefined : groups.find((item) => !item['@retain'])
     if (!group) {
       group = { variable: [], ...(variable.retain ? { '@retain': 'true' as const } : {}) }
       groups.push(group)

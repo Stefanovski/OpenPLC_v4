@@ -1,6 +1,6 @@
 import { PLCProjectDataSchema } from '@root/types/PLC/open-plc'
 
-import { gvlFixture } from '../../../scripts/eurosonic/fixtures/gvl'
+import { gvlFixture, multiRetainGvlFixture } from '../../../scripts/eurosonic/fixtures/gvl'
 import { generateIecVariablesToString } from '../generate-iec-variables-to-string'
 import { displayGvlPath, lowerGlobalVariableLists, parseGvlDeclarations } from './global-variable-lists'
 import { XmlGenerator } from './xml-generator'
@@ -43,6 +43,28 @@ test('XML emits actual located globals and separate retained blocks', () => {
   expect(xml).toContain('GVL_State_Count := GVL_State_Count + 1;')
   expect(xml).not.toContain('<struct>')
 })
+
+test.each(['old-editor', 'codesys'] as const)(
+  '%s preserves RETAIN for every global across multiple lists',
+  (format) => {
+    const result = XmlGenerator(multiRetainGvlFixture(), format)
+    expect(result.ok).toBe(true)
+    const blocks = [...result.data!.matchAll(/<globalVars retain="true">([\s\S]*?)<\/globalVars>/g)]
+    expect(blocks).toHaveLength(5)
+    for (const block of blocks) expect(block[1].match(/<variable /g)).toHaveLength(1)
+    const retained = blocks.map((block) => block[1]).join('')
+    for (const name of [
+      'GVL_State_Count',
+      'GVL_State_Marker',
+      'GVL_Second_Count',
+      'GVL_Second_Enabled',
+      'GVL_Second_Signed',
+    ])
+      expect(retained).toContain(`name="${name}"`)
+    for (const name of ['GVL_IO_Lamp', 'GVL_State_Volatile', 'GVL_Second_Scratch'])
+      expect(retained).not.toContain(`name="${name}"`)
+  },
+)
 
 test('strict GVL declarations roundtrip RETAIN and AT; invalid pending edits cannot compile', () => {
   const project = gvlFixture()
